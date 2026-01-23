@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../shared/constants';
+import { STORAGE_KEYS, API_CONFIG } from '../shared/constants';
+import { TEST_UPLOADS } from '../data/testUploads';
 import type { Upload, CreateUploadData, VoteType, UserVotes } from '../shared/types';
 
 interface UseUploadDataResult {
@@ -24,12 +25,16 @@ export function useUploadData(): UseUploadDataResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load uploads from storage
+  // Load uploads from storage (or seed with test data)
   const loadUploads = useCallback(async () => {
     try {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.UPLOADS);
       if (stored) {
         setUploads(JSON.parse(stored));
+      } else if (API_CONFIG.USE_TEST_DATA) {
+        // Seed with test data on first run
+        setUploads(TEST_UPLOADS);
+        await AsyncStorage.setItem(STORAGE_KEYS.UPLOADS, JSON.stringify(TEST_UPLOADS));
       }
       setError(null);
     } catch (err) {

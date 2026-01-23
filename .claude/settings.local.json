@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx expo install react-native-reanimated)",
+      "Bash(npx expo install:*)",
+      "Bash(source ~/.nvm/nvm.sh)",
+      "Bash(nvm use:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(npx expo run:ios)"
+    ]
+  }
+}
