@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "Unum",
+    "slug": "unum",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.unum.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Unum needs camera access to capture photos and videos for sharing.",
+        "NSMicrophoneUsageDescription": "Unum needs microphone access to record video with audio.",
+        "NSLocationWhenInUseUsageDescription": "Unum needs your location to show nearby content and tag your uploads.",
+        "NSPhotoLibraryUsageDescription": "Unum needs photo library access to save captured media."
+      },
+      "config": {
+        "googleMapsApiKey": ""
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.unum.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": ""
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Unum to access your camera to capture photos and videos.",
+          "microphonePermission": "Allow Unum to access your microphone for video recording.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Unum to use your location to show nearby content."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Unum to access your microphone for video playback."
+        }
+      ]
+    ]
+  }
+}
