@@ -11,7 +11,10 @@
       "Bash(npx expo run:ios)",
       "Bash(npx expo:*)",
       "Bash(xcrun simctl:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(tree:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node --version)"
     ]
   }
 }

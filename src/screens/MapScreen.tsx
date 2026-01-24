@@ -22,17 +22,10 @@ import { useDownload } from '../hooks/useDownload';
 import { FeedPanel } from '../components/FeedPanel';
 import { MediaDisplay } from '../components/MediaDisplay';
 import { VoteButtons } from '../components/VoteButtons';
-import { COLORS, MAP_CONFIG } from '../shared/constants';
-import { formatTimestamp } from '../shared/utils/formatting';
+import { COLORS, MAP_CONFIG, SHADOWS, BUTTON_SIZES } from '../shared/constants';
+import { formatTimestamp, toLatLng } from '../shared/utils';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
-import type { Coordinates } from '../shared/types';
-
-// Convert [lat, lng] array to {latitude, longitude} object for react-native-maps
-const toLatLng = (coords: Coordinates) => ({
-  latitude: coords[0],
-  longitude: coords[1],
-});
 
 type MapScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Map'>;
@@ -309,33 +302,25 @@ const styles = StyleSheet.create({
   searchButton: {
     position: 'absolute',
     right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: BUTTON_SIZES.SMALL,
+    height: BUTTON_SIZES.SMALL,
+    borderRadius: BUTTON_SIZES.SMALL / 2,
     backgroundColor: COLORS.PRIMARY,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    ...SHADOWS.MEDIUM,
   },
   cameraButton: {
     position: 'absolute',
     bottom: 120,
     right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: BUTTON_SIZES.XLARGE,
+    height: BUTTON_SIZES.XLARGE,
+    borderRadius: BUTTON_SIZES.XLARGE / 2,
     backgroundColor: COLORS.PRIMARY,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    ...SHADOWS.MEDIUM,
   },
   modalOverlay: {
     flex: 1,
@@ -349,11 +334,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.BACKGROUND,
     borderRadius: 12,
     padding: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    ...SHADOWS.LARGE,
   },
   searchInputRow: {
     flexDirection: 'row',
@@ -382,11 +363,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.BACKGROUND,
     borderRadius: 12,
     padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    ...SHADOWS.MEDIUM,
   },
   calloutMedia: {
     width: '100%',
@@ -427,11 +404,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.DANGER,
     borderWidth: 3,
     borderColor: COLORS.BACKGROUND,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-    elevation: 3,
+    ...SHADOWS.SMALL,
   },
   markerPinActive: {
     backgroundColor: '#000',
