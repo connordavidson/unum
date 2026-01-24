@@ -78,3 +78,47 @@ export const COLORS = {
   DOWNVOTE_BG: "#ffebee",
   OVERLAY: "rgba(0, 0, 0, 0.5)",
 };
+
+// ============ Shadow Styles ============
+export const SHADOWS = {
+  SMALL: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  MEDIUM: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  LARGE: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+};
+
+// ============ Button Sizes ============
+export const BUTTON_SIZES = {
+  SMALL: 44,
+  MEDIUM: 50,
+  LARGE: 56,
+  XLARGE: 60,
+  CAPTURE: 80,
+};
+
+// Helper for circular button styles
+export const circularButtonStyle = (size: number, backgroundColor: string) => ({
+  width: size,
+  height: size,
+  borderRadius: size / 2,
+  backgroundColor,
+  justifyContent: "center" as const,
+  alignItems: "center" as const,
+});
