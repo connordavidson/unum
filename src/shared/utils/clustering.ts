@@ -9,10 +9,10 @@ export function getDistanceMeters(
   coord2: Coordinates
 ): number {
   const R = 6371000; // Earth's radius in meters
-  const lat1Rad = (coord1.latitude * Math.PI) / 180;
-  const lat2Rad = (coord2.latitude * Math.PI) / 180;
-  const deltaLat = ((coord2.latitude - coord1.latitude) * Math.PI) / 180;
-  const deltaLon = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+  const lat1Rad = (coord1[0] * Math.PI) / 180;
+  const lat2Rad = (coord2[0] * Math.PI) / 180;
+  const deltaLat = ((coord2[0] - coord1[0]) * Math.PI) / 180;
+  const deltaLon = ((coord2[1] - coord1[1]) * Math.PI) / 180;
 
   const a =
     Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
@@ -31,21 +31,18 @@ export function getDistanceMeters(
  */
 export function calculateCenter(uploads: Upload[]): Coordinates {
   if (uploads.length === 0) {
-    return { latitude: 0, longitude: 0 };
+    return [0, 0];
   }
 
   const sum = uploads.reduce(
-    (acc, upload) => ({
-      latitude: acc.latitude + upload.coordinates.latitude,
-      longitude: acc.longitude + upload.coordinates.longitude,
-    }),
-    { latitude: 0, longitude: 0 }
+    (acc, upload) => [
+      acc[0] + upload.coordinates[0],
+      acc[1] + upload.coordinates[1],
+    ],
+    [0, 0] as Coordinates
   );
 
-  return {
-    latitude: sum.latitude / uploads.length,
-    longitude: sum.longitude / uploads.length,
-  };
+  return [sum[0] / uploads.length, sum[1] / uploads.length];
 }
 
 /**
@@ -65,7 +62,7 @@ export function calculateRadius(uploads: Upload[], center: Coordinates): number 
  * Group uploads into clusters based on proximity
  */
 export function clusterUploads(uploads: Upload[]): ClusterResult {
-  const visited = new Set<string>();
+  const visited = new Set<number>();
   const largeClusters: Cluster[] = [];
   const smallClusters: Cluster[] = [];
   const unclustered: Upload[] = [];

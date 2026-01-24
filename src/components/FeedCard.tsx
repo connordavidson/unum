@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { COLORS, FEED_CONFIG } from '../shared/constants';
 import { formatTimestamp, truncateText } from '../shared/utils/formatting';
+import { useDownload } from '../hooks/useDownload';
 import { MediaDisplay } from './MediaDisplay';
 import { VoteButtons } from './VoteButtons';
 import type { Upload, VoteType } from '../shared/types';
@@ -9,7 +10,7 @@ import type { Upload, VoteType } from '../shared/types';
 interface FeedCardProps {
   upload: Upload;
   userVote?: VoteType;
-  onVote: (uploadId: string, voteType: VoteType) => void;
+  onVote: (uploadId: number, voteType: VoteType) => void;
   isVisible?: boolean;
 }
 
@@ -20,6 +21,11 @@ export function FeedCard({
   isVisible = false,
 }: FeedCardProps) {
   const [captionExpanded, setCaptionExpanded] = useState(false);
+  const { downloadMedia } = useDownload();
+
+  const handleDownload = useCallback((_uploadId: number) => {
+    downloadMedia(upload);
+  }, [downloadMedia, upload]);
 
   const hasLongCaption =
     upload.caption && upload.caption.length > FEED_CONFIG.CAPTION_MAX_LENGTH;
@@ -39,8 +45,10 @@ export function FeedCard({
           <VoteButtons
             uploadId={upload.id}
             votes={upload.votes}
+            coordinates={upload.coordinates}
             userVote={userVote}
             onVote={onVote}
+            onDownload={handleDownload}
             size="small"
           />
         </View>
