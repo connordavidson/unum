@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as Location from 'expo-location';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS, LOCATION_CONFIG, MAP_CONFIG } from '../shared/constants';
+import { getStoredJSON, setStoredJSON } from '../shared/utils';
 import type { Coordinates } from '../shared/types';
 
 interface UseLocationResult {
@@ -17,20 +17,12 @@ export function useLocation(): UseLocationResult {
   const [loading, setLoading] = useState(true);
 
   const getCachedLocation = useCallback(async (): Promise<Coordinates | null> => {
-    try {
-      const cached = await AsyncStorage.getItem(STORAGE_KEYS.LOCATION);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch {
-      // Ignore cache errors
-    }
-    return null;
+    return getStoredJSON<Coordinates>(STORAGE_KEYS.LOCATION);
   }, []);
 
   const cacheLocation = useCallback(async (coords: Coordinates) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEYS.LOCATION, JSON.stringify(coords));
+      await setStoredJSON(STORAGE_KEYS.LOCATION, coords);
     } catch {
       // Ignore cache errors
     }
@@ -97,13 +89,6 @@ export function useLocation(): UseLocationResult {
  * Note: This is async in RN, so we return the default if not available
  */
 export async function getCachedLocationAsync(): Promise<Coordinates> {
-  try {
-    const cached = await AsyncStorage.getItem(STORAGE_KEYS.LOCATION);
-    if (cached) {
-      return JSON.parse(cached);
-    }
-  } catch {
-    // Ignore
-  }
-  return MAP_CONFIG.DEFAULT_CENTER;
+  const cached = await getStoredJSON<Coordinates>(STORAGE_KEYS.LOCATION);
+  return cached || MAP_CONFIG.DEFAULT_CENTER;
 }

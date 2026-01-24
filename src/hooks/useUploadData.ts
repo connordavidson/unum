@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS, API_CONFIG } from '../shared/constants';
+import { getStoredJSON, setStoredJSON } from '../shared/utils';
 import { TEST_UPLOADS } from '../data/testUploads';
 import type { Upload, CreateUploadData, VoteType, UserVotes } from '../shared/types';
 
@@ -32,11 +33,11 @@ export function useUploadData(): UseUploadDataResult {
       if (API_CONFIG.USE_TEST_DATA) {
         await AsyncStorage.removeItem(STORAGE_KEYS.UPLOADS);
         setUploads(TEST_UPLOADS);
-        await AsyncStorage.setItem(STORAGE_KEYS.UPLOADS, JSON.stringify(TEST_UPLOADS));
+        await setStoredJSON(STORAGE_KEYS.UPLOADS, TEST_UPLOADS);
       } else {
-        const stored = await AsyncStorage.getItem(STORAGE_KEYS.UPLOADS);
+        const stored = await getStoredJSON<Upload[]>(STORAGE_KEYS.UPLOADS);
         if (stored) {
-          setUploads(JSON.parse(stored));
+          setUploads(stored);
         }
       }
       setError(null);
@@ -49,9 +50,9 @@ export function useUploadData(): UseUploadDataResult {
   // Load user votes from storage
   const loadUserVotes = useCallback(async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEYS.USER_VOTES);
+      const stored = await getStoredJSON<UserVotes>(STORAGE_KEYS.USER_VOTES);
       if (stored) {
-        setUserVotes(JSON.parse(stored));
+        setUserVotes(stored);
       }
     } catch (err) {
       console.error('Failed to load user votes:', err);
@@ -70,24 +71,14 @@ export function useUploadData(): UseUploadDataResult {
 
   // Save uploads to storage
   const saveUploads = useCallback(async (newUploads: Upload[]) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.UPLOADS, JSON.stringify(newUploads));
-      setUploads(newUploads);
-    } catch (err) {
-      console.error('Failed to save uploads:', err);
-      throw err;
-    }
+    await setStoredJSON(STORAGE_KEYS.UPLOADS, newUploads);
+    setUploads(newUploads);
   }, []);
 
   // Save user votes to storage
   const saveUserVotes = useCallback(async (newVotes: UserVotes) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.USER_VOTES, JSON.stringify(newVotes));
-      setUserVotes(newVotes);
-    } catch (err) {
-      console.error('Failed to save user votes:', err);
-      throw err;
-    }
+    await setStoredJSON(STORAGE_KEYS.USER_VOTES, newVotes);
+    setUserVotes(newVotes);
   }, []);
 
   // Create a new upload

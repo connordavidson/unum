@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Image,
@@ -6,7 +6,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../shared/constants';
 import type { Upload } from '../shared/types';
@@ -24,22 +24,39 @@ export function MediaDisplay({
 }: MediaDisplayProps) {
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isLoading, setIsLoading] = useState(true);
-  const videoRef = useRef<Video>(null);
 
-  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (status.isLoaded) {
-      setIsLoading(false);
-      setIsPlaying(status.isPlaying);
+  // Video player (only used for video type)
+  const videoPlayer = useVideoPlayer(
+    upload.type === 'video' ? upload.data : '',
+    (player) => {
+      player.loop = true;
+      player.muted = false;
     }
-  };
+  );
 
-  const togglePlayback = async () => {
-    if (!videoRef.current) return;
+  // Handle autoPlay and track playing state
+  useEffect(() => {
+    if (upload.type !== 'video' || !videoPlayer) return;
+
+    if (autoPlay) {
+      videoPlayer.play();
+      setIsPlaying(true);
+    }
+
+    // Set loading to false after a short delay (video is ready)
+    const timer = setTimeout(() => setIsLoading(false), 500);
+    return () => clearTimeout(timer);
+  }, [autoPlay, videoPlayer, upload.type]);
+
+  const togglePlayback = () => {
+    if (!videoPlayer) return;
 
     if (isPlaying) {
-      await videoRef.current.pauseAsync();
+      videoPlayer.pause();
+      setIsPlaying(false);
     } else {
-      await videoRef.current.playAsync();
+      videoPlayer.play();
+      setIsPlaying(true);
     }
   };
 
@@ -68,16 +85,11 @@ export function MediaDisplay({
       onPress={togglePlayback}
       activeOpacity={0.9}
     >
-      <Video
-        ref={videoRef}
-        source={{ uri: upload.data }}
+      <VideoView
+        player={videoPlayer}
         style={styles.media}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={autoPlay}
-        isLooping
-        isMuted={false}
-        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-        onLoadStart={() => setIsLoading(true)}
+        contentFit="cover"
+        nativeControls={false}
       />
 
       {isLoading && (

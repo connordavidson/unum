@@ -62,12 +62,7 @@
           "locationAlwaysAndWhenInUsePermission": "Allow Unum to use your location to show nearby content."
         }
       ],
-      [
-        "expo-av",
-        {
-          "microphonePermission": "Allow Unum to access your microphone for video playback."
-        }
-      ]
+      "expo-video"
     ]
   }
 }
