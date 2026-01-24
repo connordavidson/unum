@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { Video, ResizeMode } from 'expo-av';
+import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCamera } from '../hooks/useCamera';
@@ -35,9 +37,11 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     requestPermission,
     facing,
     isRecording,
+    isCameraReady,
     capturedPhoto,
     recordedVideo,
     cameraRef,
+    onCameraReady,
     flipCamera,
     clearMedia,
     handlePressIn,
@@ -72,8 +76,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     try {
       await createUpload({
         type: capturedPhoto ? 'photo' : 'video',
-        uri: mediaUri,
-        coordinates: position,
+        data: mediaUri,
+        coordinates: [position.latitude, position.longitude],
         caption: caption.trim() || undefined,
       });
       navigation.goBack();
@@ -82,6 +86,52 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleDownloadMedia = useCallback(async () => {
+    const mediaUri = capturedPhoto || recordedVideo;
+    if (!mediaUri) return;
+
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant media library access to save files.');
+        return;
+      }
+
+      await MediaLibrary.saveToLibraryAsync(mediaUri);
+      Alert.alert('Success', 'Saved to your photo library.');
+    } catch (error) {
+      console.error('Download failed:', error);
+      Alert.alert('Error', 'Failed to save media.');
+    }
+  }, [capturedPhoto, recordedVideo]);
+
+  const handleDelayedUpload = () => {
+    if (!position) return;
+
+    const mediaUri = capturedPhoto || recordedVideo;
+    if (!mediaUri) return;
+
+    const uploadData = {
+      type: capturedPhoto ? 'photo' : 'video' as const,
+      data: mediaUri,
+      coordinates: [position.latitude, position.longitude] as [number, number],
+      caption: caption.trim() || undefined,
+    };
+
+    // Schedule post in 5 minutes
+    setTimeout(async () => {
+      try {
+        await createUpload(uploadData);
+      } catch (error) {
+        console.error('Delayed upload failed:', error);
+      }
+    }, 5 * 60 * 1000);
+
+    // Show confirmation and go back
+    alert('Post scheduled for 5 minutes from now');
+    navigation.goBack();
   };
 
   // Permission not granted
@@ -144,29 +194,42 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
           <View style={styles.actionButtons}>
             <TouchableOpacity
-              style={styles.retakeButton}
+              style={styles.actionIconButton}
               onPress={handleRetake}
               disabled={isUploading}
             >
               <Ionicons name="refresh" size={24} color={COLORS.TEXT_PRIMARY} />
-              <Text style={styles.retakeText}>Retake</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.uploadButton, isUploading && styles.uploadButtonDisabled]}
+              style={styles.actionIconButton}
+              onPress={handleDownloadMedia}
+              disabled={isUploading}
+            >
+              <Ionicons name="download-outline" size={24} color={COLORS.TEXT_PRIMARY} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.postIconButton, isUploading && styles.uploadButtonDisabled]}
               onPress={handleUpload}
               disabled={isUploading || !position}
             >
               {isUploading ? (
                 <ActivityIndicator color={COLORS.BACKGROUND} />
               ) : (
-                <>
-                  <Ionicons name="arrow-up" size={24} color={COLORS.BACKGROUND} />
-                  <Text style={styles.uploadText}>Post</Text>
-                </>
+                <Ionicons name="arrow-up" size={24} color={COLORS.BACKGROUND} />
               )}
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={[styles.delayButton, isUploading && styles.uploadButtonDisabled]}
+            onPress={handleDelayedUpload}
+            disabled={isUploading || !position}
+          >
+            <Ionicons name="time-outline" size={20} color={COLORS.TEXT_SECONDARY} />
+            <Text style={styles.delayText}>Post in 5 minutes</Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     );
@@ -175,7 +238,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   // Camera view
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={styles.camera} facing={facing}>
+      <CameraView ref={cameraRef} style={styles.camera} facing={facing} mode="video" onCameraReady={onCameraReady}>
         {/* Close button */}
         <TouchableOpacity
           style={[styles.closeButton, { top: insets.top + 16 }]}
@@ -184,29 +247,33 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           <Ionicons name="close" size={28} color={COLORS.BACKGROUND} />
         </TouchableOpacity>
 
-        {/* Flip camera button */}
-        <TouchableOpacity
-          style={[styles.flipButton, { top: insets.top + 16 }]}
-          onPress={flipCamera}
-        >
-          <Ionicons name="camera-reverse" size={28} color={COLORS.BACKGROUND} />
-        </TouchableOpacity>
-
         {/* Capture controls */}
         <View style={[styles.controls, { paddingBottom: insets.bottom + 32 }]}>
-          <View style={styles.captureContainer}>
+          <View style={styles.captureRow}>
+            {/* Flip camera button */}
             <TouchableOpacity
-              style={[styles.captureButton, isRecording && styles.captureButtonRecording]}
-              onPressIn={handlePressIn}
-              onPressOut={handlePressOut}
+              style={styles.flipButton}
+              onPress={flipCamera}
+            >
+              <Ionicons name="camera-reverse" size={28} color={COLORS.BACKGROUND} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.captureButton, isRecording && styles.captureButtonRecording, !isCameraReady && styles.captureButtonDisabled]}
+              onPressIn={isCameraReady ? handlePressIn : undefined}
+              onPressOut={isCameraReady ? handlePressOut : undefined}
               activeOpacity={0.8}
+              disabled={!isCameraReady}
             >
               {isRecording && <View style={styles.recordingIndicator} />}
             </TouchableOpacity>
+
+            {/* Empty space to balance the layout */}
+            <View style={styles.flipButtonPlaceholder} />
           </View>
 
           <Text style={styles.hint}>
-            {isRecording ? 'Recording...' : 'Tap for photo, hold for video'}
+            {!isCameraReady ? 'Loading camera...' : isRecording ? 'Recording...' : 'Tap for photo, hold for video'}
           </Text>
         </View>
       </CameraView>
@@ -238,14 +305,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   flipButton: {
-    position: 'absolute',
-    right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: COLORS.OVERLAY,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  flipButtonPlaceholder: {
+    width: 50,
+    height: 50,
   },
   controls: {
     position: 'absolute',
@@ -254,7 +323,11 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
   },
-  captureContainer: {
+  captureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 32,
     marginBottom: 16,
   },
   captureButton: {
@@ -269,6 +342,9 @@ const styles = StyleSheet.create({
   },
   captureButtonRecording: {
     backgroundColor: COLORS.DANGER,
+  },
+  captureButtonDisabled: {
+    opacity: 0.5,
   },
   recordingIndicator: {
     width: 32,
@@ -328,39 +404,38 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  retakeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
+    gap: 24,
+  },
+  actionIconButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: COLORS.BACKGROUND_LIGHT,
-  },
-  retakeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.TEXT_PRIMARY,
-  },
-  uploadButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
+    alignItems: 'center',
+  },
+  postIconButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: COLORS.SUCCESS,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   uploadButtonDisabled: {
     opacity: 0.6,
   },
-  uploadText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.BACKGROUND,
+  delayButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  delayText: {
+    fontSize: 14,
+    color: COLORS.TEXT_SECONDARY,
   },
 });

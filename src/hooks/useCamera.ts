@@ -11,6 +11,7 @@ interface UseCameraResult {
   isActive: boolean;
   facing: CameraType;
   isRecording: boolean;
+  isCameraReady: boolean;
 
   // Captured media
   capturedPhoto: string | null;
@@ -18,6 +19,9 @@ interface UseCameraResult {
 
   // Refs
   cameraRef: React.RefObject<CameraView>;
+
+  // Callbacks
+  onCameraReady: () => void;
 
   // Actions
   openCamera: () => void;
@@ -40,10 +44,15 @@ export function useCamera(): UseCameraResult {
   const [isRecording, setIsRecording] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [recordedVideo, setRecordedVideo] = useState<string | null>(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
 
   const cameraRef = useRef<CameraView>(null);
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isHoldingRef = useRef(false);
+
+  const onCameraReady = useCallback(() => {
+    setIsCameraReady(true);
+  }, []);
 
   const requestPermission = useCallback(async () => {
     await requestPermissionAsync();
@@ -64,11 +73,12 @@ export function useCamera(): UseCameraResult {
 
   const flipCamera = useCallback(() => {
     if (isRecording) return;
+    setIsCameraReady(false);
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
   }, [isRecording]);
 
   const takePhoto = useCallback(async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || !isCameraReady) return;
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
@@ -82,10 +92,10 @@ export function useCamera(): UseCameraResult {
     } catch (err) {
       console.error('Failed to take photo:', err);
     }
-  }, []);
+  }, [isCameraReady]);
 
   const startRecording = useCallback(async () => {
-    if (!cameraRef.current || isRecording) return;
+    if (!cameraRef.current || isRecording || !isCameraReady) return;
 
     setIsRecording(true);
 
@@ -102,7 +112,7 @@ export function useCamera(): UseCameraResult {
     } finally {
       setIsRecording(false);
     }
-  }, [isRecording]);
+  }, [isRecording, isCameraReady]);
 
   const stopRecording = useCallback(async () => {
     if (!cameraRef.current || !isRecording) return;
@@ -154,9 +164,11 @@ export function useCamera(): UseCameraResult {
     isActive,
     facing,
     isRecording,
+    isCameraReady,
     capturedPhoto,
     recordedVideo,
     cameraRef,
+    onCameraReady,
     openCamera,
     closeCamera,
     flipCamera,

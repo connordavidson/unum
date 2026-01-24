@@ -1,8 +1,8 @@
 // ============ Map Configuration ============
 export const MAP_CONFIG = {
   DEFAULT_CENTER: {
-    latitude: 38.8867,
-    longitude: -77.0276,
+    latitude: 35.2271,
+    longitude: -80.8431,
   },
   DEFAULT_ZOOM: 15,
   DEFAULT_DELTA: {
@@ -22,7 +22,7 @@ export const CLUSTER_CONFIG = {
 
 // ============ Location Configuration ============
 export const LOCATION_CONFIG = {
-  CACHE_KEY: 'unum_user_location',
+  CACHE_KEY: "unum_user_location",
   UPDATE_INTERVAL_MS: 60000,
 };
 
@@ -33,15 +33,15 @@ export const CAMERA_CONFIG = {
 
 // ============ Storage Keys ============
 export const STORAGE_KEYS = {
-  UPLOADS: 'unum_uploads',
-  VOTES: 'unum_votes',
-  USER_VOTES: 'unum_user_votes',
-  LOCATION: 'unum_user_location',
+  UPLOADS: "unum_uploads",
+  VOTES: "unum_votes",
+  USER_VOTES: "unum_user_votes",
+  LOCATION: "unum_user_location",
 };
 
 // ============ API Configuration ============
 export const API_CONFIG = {
-  BASE_URL: '/api',
+  BASE_URL: "/api",
   USE_TEST_DATA: true,
 };
 
@@ -58,23 +58,23 @@ export const UI_CONFIG = {
 
 // ============ Bottom Sheet Snap Points ============
 export const SHEET_SNAP_POINTS = {
-  MINIMIZED: '12%',
-  COLLAPSED: '35%',
-  EXPANDED: '90%',
+  MINIMIZED: 80, // Fixed height: handle + header with border
+  COLLAPSED: "60%",
+  EXPANDED: "100%",
 };
 
 // ============ Theme Colors ============
 export const COLORS = {
-  PRIMARY: '#333',
-  SUCCESS: '#4CAF50',
-  DANGER: '#f44336',
-  TEXT_PRIMARY: '#000',
-  TEXT_SECONDARY: '#666',
-  TEXT_TERTIARY: '#999',
-  BORDER: '#eee',
-  BACKGROUND: '#fff',
-  BACKGROUND_LIGHT: '#f5f5f5',
-  UPVOTE_BG: '#e8f5e9',
-  DOWNVOTE_BG: '#ffebee',
-  OVERLAY: 'rgba(0, 0, 0, 0.5)',
+  PRIMARY: "#333",
+  SUCCESS: "#4CAF50",
+  DANGER: "#f44336",
+  TEXT_PRIMARY: "#000",
+  TEXT_SECONDARY: "#666",
+  TEXT_TERTIARY: "#999",
+  BORDER: "#eee",
+  BACKGROUND: "#fff",
+  BACKGROUND_LIGHT: "#f5f5f5",
+  UPVOTE_BG: "#e8f5e9",
+  DOWNVOTE_BG: "#ffebee",
+  OVERLAY: "rgba(0, 0, 0, 0.5)",
 };

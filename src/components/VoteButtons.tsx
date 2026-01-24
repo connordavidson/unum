@@ -1,30 +1,66 @@
-import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, TouchableOpacity, Text, StyleSheet, Linking, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../shared/constants';
 import { formatVoteCount } from '../shared/utils/formatting';
-import type { VoteType } from '../shared/types';
+import type { VoteType, Coordinates } from '../shared/types';
 
 interface VoteButtonsProps {
-  uploadId: string;
+  uploadId: number;
   votes: number;
+  coordinates?: Coordinates;
   userVote?: VoteType;
-  onVote: (uploadId: string, voteType: VoteType) => void;
+  onVote: (uploadId: number, voteType: VoteType) => void;
+  onDownload?: (uploadId: number) => void;
   size?: 'small' | 'large';
 }
 
 export function VoteButtons({
   uploadId,
   votes,
+  coordinates,
   userVote,
   onVote,
+  onDownload,
   size = 'small',
 }: VoteButtonsProps) {
   const isSmall = size === 'small';
   const iconSize = isSmall ? 16 : 24;
   const buttonSize = isSmall ? 32 : 44;
 
+  const handleNavigate = useCallback(() => {
+    if (!coordinates) return;
+    const [lat, lng] = coordinates;
+    const url = Platform.select({
+      ios: `maps://app?daddr=${lat},${lng}`,
+      android: `google.navigation:q=${lat},${lng}`,
+      default: `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`,
+    });
+    Linking.openURL(url);
+  }, [coordinates]);
+
   return (
     <View style={styles.container}>
+      {coordinates && (
+        <TouchableOpacity
+          style={[styles.button, { width: buttonSize, height: buttonSize }]}
+          onPress={handleNavigate}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="navigate-outline" size={iconSize} color={COLORS.TEXT_SECONDARY} />
+        </TouchableOpacity>
+      )}
+
+      {onDownload && (
+        <TouchableOpacity
+          style={[styles.button, { width: buttonSize, height: buttonSize }]}
+          onPress={() => onDownload(uploadId)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="download-outline" size={iconSize} color={COLORS.TEXT_SECONDARY} />
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity
         style={[
           styles.button,
