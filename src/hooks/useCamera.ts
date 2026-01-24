@@ -73,8 +73,12 @@ export function useCamera(): UseCameraResult {
 
   const flipCamera = useCallback(() => {
     if (isRecording) return;
-    setIsCameraReady(false);
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
+    setIsCameraReady(false);
+    // Fallback: expo-camera may not always fire onCameraReady after facing change
+    setTimeout(() => {
+      setIsCameraReady(true);
+    }, 500);
   }, [isRecording]);
 
   const takePhoto = useCallback(async () => {
