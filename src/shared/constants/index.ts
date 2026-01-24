@@ -122,3 +122,26 @@ export const circularButtonStyle = (size: number, backgroundColor: string) => ({
   justifyContent: "center" as const,
   alignItems: "center" as const,
 });
+
+// ============ Feature Flags ============
+export const FEATURE_FLAGS = {
+  USE_AWS_BACKEND: false,        // Enable AWS S3/DynamoDB integration
+  ENABLE_OFFLINE_SYNC: true,     // Enable offline queue and sync
+  ENABLE_BACKGROUND_SYNC: false, // Enable background sync on reconnect
+};
+
+// ============ BFF Configuration ============
+export const BFF_CONFIG = {
+  SYNC_INTERVAL_MS: 30000,       // 30 seconds
+  SYNC_RETRY_DELAY_MS: 5000,     // 5 seconds base retry delay
+  MAX_SYNC_RETRIES: 3,
+  SYNC_BATCH_SIZE: 10,           // Max items to sync at once
+};
+
+// ============ Additional Storage Keys for BFF ============
+export const BFF_STORAGE_KEYS = {
+  DEVICE_ID: "unum_device_id",
+  SYNC_QUEUE: "unum_sync_queue",
+  LAST_SYNC: "unum_last_sync",
+  CACHED_UPLOADS: "unum_cached_uploads",
+};
