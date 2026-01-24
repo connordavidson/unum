@@ -12,14 +12,14 @@ import {
   Alert,
 } from 'react-native';
 import { CameraView } from 'expo-camera';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
-import { COLORS } from '../shared/constants';
+import { COLORS, BUTTON_SIZES } from '../shared/constants';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -51,6 +51,23 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   const [caption, setCaption] = React.useState('');
   const [isUploading, setIsUploading] = React.useState(false);
 
+  // Video player for preview
+  const videoPlayer = useVideoPlayer(recordedVideo || '', (player) => {
+    player.loop = true;
+    player.muted = false;
+  });
+
+  // Auto-play when video is recorded
+  useEffect(() => {
+    if (recordedVideo && videoPlayer) {
+      videoPlayer.play();
+    }
+  }, [recordedVideo, videoPlayer]);
+
+  // Helper to get current media URI and type
+  const getMediaUri = useCallback(() => capturedPhoto || recordedVideo, [capturedPhoto, recordedVideo]);
+  const getMediaType = useCallback((): 'photo' | 'video' => (capturedPhoto ? 'photo' : 'video'), [capturedPhoto]);
+
   useEffect(() => {
     if (!permission?.granted) {
       requestPermission();
@@ -67,15 +84,13 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   };
 
   const handleUpload = async () => {
-    if (!position) return;
-
-    const mediaUri = capturedPhoto || recordedVideo;
-    if (!mediaUri) return;
+    const mediaUri = getMediaUri();
+    if (!position || !mediaUri) return;
 
     setIsUploading(true);
     try {
       await createUpload({
-        type: capturedPhoto ? 'photo' : 'video',
+        type: getMediaType(),
         data: mediaUri,
         coordinates: [position.latitude, position.longitude],
         caption: caption.trim() || undefined,
@@ -89,7 +104,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   };
 
   const handleDownloadMedia = useCallback(async () => {
-    const mediaUri = capturedPhoto || recordedVideo;
+    const mediaUri = getMediaUri();
     if (!mediaUri) return;
 
     try {
@@ -105,16 +120,14 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       console.error('Download failed:', error);
       Alert.alert('Error', 'Failed to save media.');
     }
-  }, [capturedPhoto, recordedVideo]);
+  }, [getMediaUri]);
 
   const handleDelayedUpload = () => {
-    if (!position) return;
-
-    const mediaUri = capturedPhoto || recordedVideo;
-    if (!mediaUri) return;
+    const mediaUri = getMediaUri();
+    if (!position || !mediaUri) return;
 
     const uploadData = {
-      type: capturedPhoto ? 'photo' : 'video' as const,
+      type: getMediaType(),
       data: mediaUri,
       coordinates: [position.latitude, position.longitude] as [number, number],
       caption: caption.trim() || undefined,
@@ -161,13 +174,11 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           {capturedPhoto ? (
             <Image source={{ uri: capturedPhoto }} style={styles.preview} />
           ) : (
-            <Video
-              source={{ uri: recordedVideo! }}
+            <VideoView
+              player={videoPlayer}
               style={styles.preview}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay
-              isLooping
-              isMuted={false}
+              contentFit="cover"
+              nativeControls={false}
             />
           )}
 
@@ -238,45 +249,46 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   // Camera view
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={styles.camera} facing={facing} mode="video" onCameraReady={onCameraReady}>
-        {/* Close button */}
-        <TouchableOpacity
-          style={[styles.closeButton, { top: insets.top + 16 }]}
-          onPress={handleClose}
-        >
-          <Ionicons name="close" size={28} color={COLORS.BACKGROUND} />
-        </TouchableOpacity>
+      <CameraView ref={cameraRef} style={styles.camera} facing={facing} mode="video" onCameraReady={onCameraReady} />
 
-        {/* Capture controls */}
-        <View style={[styles.controls, { paddingBottom: insets.bottom + 32 }]}>
-          <View style={styles.captureRow}>
-            {/* Flip camera button */}
-            <TouchableOpacity
-              style={styles.flipButton}
-              onPress={flipCamera}
-            >
-              <Ionicons name="camera-reverse" size={28} color={COLORS.BACKGROUND} />
-            </TouchableOpacity>
+      {/* Overlay controls - positioned absolutely on top of camera */}
+      {/* Close button */}
+      <TouchableOpacity
+        style={[styles.closeButton, { top: insets.top + 16 }]}
+        onPress={handleClose}
+      >
+        <Ionicons name="close" size={28} color={COLORS.BACKGROUND} />
+      </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.captureButton, isRecording && styles.captureButtonRecording, !isCameraReady && styles.captureButtonDisabled]}
-              onPressIn={isCameraReady ? handlePressIn : undefined}
-              onPressOut={isCameraReady ? handlePressOut : undefined}
-              activeOpacity={0.8}
-              disabled={!isCameraReady}
-            >
-              {isRecording && <View style={styles.recordingIndicator} />}
-            </TouchableOpacity>
+      {/* Capture controls */}
+      <View style={[styles.controls, { paddingBottom: insets.bottom + 32 }]}>
+        <View style={styles.captureRow}>
+          {/* Flip camera button */}
+          <TouchableOpacity
+            style={styles.flipButton}
+            onPress={flipCamera}
+          >
+            <Ionicons name="camera-reverse" size={28} color={COLORS.BACKGROUND} />
+          </TouchableOpacity>
 
-            {/* Empty space to balance the layout */}
-            <View style={styles.flipButtonPlaceholder} />
-          </View>
+          <TouchableOpacity
+            style={[styles.captureButton, isRecording && styles.captureButtonRecording, !isCameraReady && styles.captureButtonDisabled]}
+            onPressIn={isCameraReady ? handlePressIn : undefined}
+            onPressOut={isCameraReady ? handlePressOut : undefined}
+            activeOpacity={0.8}
+            disabled={!isCameraReady}
+          >
+            {isRecording && <View style={styles.recordingIndicator} />}
+          </TouchableOpacity>
 
-          <Text style={styles.hint}>
-            {isRecording ? 'Recording...' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
-          </Text>
+          {/* Empty space to balance the layout */}
+          <View style={styles.flipButtonPlaceholder} />
         </View>
-      </CameraView>
+
+        <Text style={styles.hint}>
+          {isRecording ? 'Recording...' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -297,24 +309,24 @@ const styles = StyleSheet.create({
   closeButton: {
     position: 'absolute',
     left: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: BUTTON_SIZES.SMALL,
+    height: BUTTON_SIZES.SMALL,
+    borderRadius: BUTTON_SIZES.SMALL / 2,
     backgroundColor: COLORS.OVERLAY,
     justifyContent: 'center',
     alignItems: 'center',
   },
   flipButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: BUTTON_SIZES.MEDIUM,
+    height: BUTTON_SIZES.MEDIUM,
+    borderRadius: BUTTON_SIZES.MEDIUM / 2,
     backgroundColor: COLORS.OVERLAY,
     justifyContent: 'center',
     alignItems: 'center',
   },
   flipButtonPlaceholder: {
-    width: 50,
-    height: 50,
+    width: BUTTON_SIZES.MEDIUM,
+    height: BUTTON_SIZES.MEDIUM,
   },
   controls: {
     position: 'absolute',
@@ -331,9 +343,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   captureButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: BUTTON_SIZES.CAPTURE,
+    height: BUTTON_SIZES.CAPTURE,
+    borderRadius: BUTTON_SIZES.CAPTURE / 2,
     backgroundColor: COLORS.BACKGROUND,
     borderWidth: 4,
     borderColor: 'rgba(255, 255, 255, 0.5)',
@@ -408,17 +420,17 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   actionIconButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: BUTTON_SIZES.LARGE,
+    height: BUTTON_SIZES.LARGE,
+    borderRadius: BUTTON_SIZES.LARGE / 2,
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     justifyContent: 'center',
     alignItems: 'center',
   },
   postIconButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: BUTTON_SIZES.LARGE,
+    height: BUTTON_SIZES.LARGE,
+    borderRadius: BUTTON_SIZES.LARGE / 2,
     backgroundColor: COLORS.SUCCESS,
     justifyContent: 'center',
     alignItems: 'center',
