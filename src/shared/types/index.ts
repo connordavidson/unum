@@ -1,21 +1,18 @@
-export interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
+export type Coordinates = [number, number]; // [latitude, longitude]
 
 export interface Upload {
-  id: string;
+  id: number;
   type: 'photo' | 'video';
-  uri: string;
+  data: string;
   coordinates: Coordinates;
-  timestamp: number;
+  timestamp: string;
   caption?: string;
   votes: number;
 }
 
 export interface CreateUploadData {
   type: 'photo' | 'video';
-  uri: string;
+  data: string;
   coordinates: Coordinates;
   caption?: string;
 }
@@ -23,7 +20,7 @@ export interface CreateUploadData {
 export type VoteType = 'up' | 'down';
 
 export interface UserVotes {
-  [uploadId: string]: VoteType;
+  [uploadId: number]: VoteType;
 }
 
 export interface Cluster {

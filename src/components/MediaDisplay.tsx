@@ -47,7 +47,7 @@ export function MediaDisplay({
     return (
       <View style={[styles.container, style]}>
         <Image
-          source={{ uri: upload.uri }}
+          source={{ uri: upload.data }}
           style={styles.media}
           resizeMode="cover"
           onLoadStart={() => setIsLoading(true)}
@@ -70,7 +70,7 @@ export function MediaDisplay({
     >
       <Video
         ref={videoRef}
-        source={{ uri: upload.uri }}
+        source={{ uri: upload.data }}
         style={styles.media}
         resizeMode={ResizeMode.COVER}
         shouldPlay={autoPlay}

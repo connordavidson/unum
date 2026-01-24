@@ -31,7 +31,7 @@ export function useMapState(uploads: Upload[]): UseMapStateResult {
   // Filter uploads visible in current region
   const visibleUploads = useMemo(() => {
     return uploads.filter((upload) => {
-      const { latitude, longitude } = upload.coordinates;
+      const [latitude, longitude] = upload.coordinates;
       const latMin = region.latitude - region.latitudeDelta / 2;
       const latMax = region.latitude + region.latitudeDelta / 2;
       const lonMin = region.longitude - region.longitudeDelta / 2;

@@ -10,13 +10,13 @@ interface UseUploadDataResult {
   loading: boolean;
   error: string | null;
   createUpload: (data: CreateUploadData) => Promise<void>;
-  handleVote: (uploadId: string, voteType: VoteType) => Promise<void>;
+  handleVote: (uploadId: number, voteType: VoteType) => Promise<void>;
   refreshUploads: () => Promise<void>;
 }
 
 // Generate a simple unique ID
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+function generateId(): number {
+  return Date.now();
 }
 
 export function useUploadData(): UseUploadDataResult {
@@ -28,13 +28,16 @@ export function useUploadData(): UseUploadDataResult {
   // Load uploads from storage (or seed with test data)
   const loadUploads = useCallback(async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEYS.UPLOADS);
-      if (stored) {
-        setUploads(JSON.parse(stored));
-      } else if (API_CONFIG.USE_TEST_DATA) {
-        // Seed with test data on first run
+      // When using test data, always clear and reseed to ensure correct format
+      if (API_CONFIG.USE_TEST_DATA) {
+        await AsyncStorage.removeItem(STORAGE_KEYS.UPLOADS);
         setUploads(TEST_UPLOADS);
         await AsyncStorage.setItem(STORAGE_KEYS.UPLOADS, JSON.stringify(TEST_UPLOADS));
+      } else {
+        const stored = await AsyncStorage.getItem(STORAGE_KEYS.UPLOADS);
+        if (stored) {
+          setUploads(JSON.parse(stored));
+        }
       }
       setError(null);
     } catch (err) {
@@ -88,15 +91,15 @@ export function useUploadData(): UseUploadDataResult {
   }, []);
 
   // Create a new upload
-  const createUpload = useCallback(async (data: CreateUploadData) => {
+  const createUpload = useCallback(async (uploadData: CreateUploadData) => {
     try {
       const newUpload: Upload = {
         id: generateId(),
-        type: data.type,
-        uri: data.uri,
-        coordinates: data.coordinates,
-        timestamp: Date.now(),
-        caption: data.caption,
+        type: uploadData.type,
+        data: uploadData.data,
+        coordinates: uploadData.coordinates,
+        timestamp: new Date().toISOString(),
+        caption: uploadData.caption,
         votes: 0,
       };
 
@@ -111,7 +114,7 @@ export function useUploadData(): UseUploadDataResult {
   }, [uploads, saveUploads]);
 
   // Vote on an upload
-  const handleVote = useCallback(async (uploadId: string, voteType: VoteType) => {
+  const handleVote = useCallback(async (uploadId: number, voteType: VoteType) => {
     try {
       const currentVote = userVotes[uploadId];
       let voteDelta = 0;

@@ -1,6 +1,7 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ViewToken } from 'react-native';
-import BottomSheet, { BottomSheetFlatList } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetFlatList, BottomSheetHandleProps } from '@gorhom/bottom-sheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHEET_SNAP_POINTS } from '../shared/constants';
 import { FeedCard } from './FeedCard';
 import type { Upload, VoteType, UserVotes } from '../shared/types';
@@ -8,7 +9,8 @@ import type { Upload, VoteType, UserVotes } from '../shared/types';
 interface FeedPanelProps {
   uploads: Upload[];
   userVotes: UserVotes;
-  onVote: (uploadId: string, voteType: VoteType) => void;
+  onVote: (uploadId: number, voteType: VoteType) => void;
+  onVisibleItemsChange?: (visibleIds: number[]) => void;
   bottomSheetRef: React.RefObject<BottomSheet>;
 }
 
@@ -16,9 +18,11 @@ export function FeedPanel({
   uploads,
   userVotes,
   onVote,
+  onVisibleItemsChange,
   bottomSheetRef,
 }: FeedPanelProps) {
-  const visibleItemsRef = useRef<Set<string>>(new Set());
+  const insets = useSafeAreaInsets();
+  const visibleItemsRef = useRef<Set<number>>(new Set());
 
   const snapPoints = [
     SHEET_SNAP_POINTS.MINIMIZED,
@@ -26,13 +30,35 @@ export function FeedPanel({
     SHEET_SNAP_POINTS.EXPANDED,
   ];
 
+  // Minimize the sheet when there are no items
+  useEffect(() => {
+    if (uploads.length === 0) {
+      bottomSheetRef.current?.snapToIndex(0);
+    }
+  }, [uploads.length, bottomSheetRef]);
+
+  // Custom handle component that includes the header
+  const renderHandle = useCallback(
+    (props: BottomSheetHandleProps) => (
+      <View style={styles.handleContainer}>
+        <View style={styles.indicator} />
+        <View style={styles.header}>
+          <Text style={styles.title}>
+            Feed <Text style={styles.count}>· {uploads.length} {uploads.length === 1 ? 'item' : 'items'}</Text>
+          </Text>
+        </View>
+      </View>
+    ),
+    [uploads.length]
+  );
+
   const handleViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      visibleItemsRef.current = new Set(
-        viewableItems.map((item) => item.item.id)
-      );
+      const visibleIds = viewableItems.map((item) => item.item.id);
+      visibleItemsRef.current = new Set(visibleIds);
+      onVisibleItemsChange?.(visibleIds);
     },
-    []
+    [onVisibleItemsChange]
   );
 
   const renderItem = useCallback(
@@ -47,7 +73,7 @@ export function FeedPanel({
     [userVotes, onVote]
   );
 
-  const keyExtractor = useCallback((item: Upload) => item.id, []);
+  const keyExtractor = useCallback((item: Upload) => String(item.id), []);
 
   const ListEmptyComponent = useCallback(
     () => (
@@ -63,17 +89,13 @@ export function FeedPanel({
       ref={bottomSheetRef}
       index={1}
       snapPoints={snapPoints}
-      handleIndicatorStyle={styles.indicator}
+      topInset={insets.top}
+      handleComponent={renderHandle}
       backgroundStyle={styles.background}
       enablePanDownToClose={false}
+      enableContentPanningGesture={false}
+      enableHandlePanningGesture={true}
     >
-      <View style={styles.header}>
-        <Text style={styles.title}>Feed</Text>
-        <Text style={styles.count}>
-          {uploads.length} {uploads.length === 1 ? 'item' : 'items'}
-        </Text>
-      </View>
-
       <BottomSheetFlatList
         data={uploads}
         renderItem={renderItem}
@@ -82,9 +104,10 @@ export function FeedPanel({
         ListEmptyComponent={ListEmptyComponent}
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={{
-          itemVisiblePercentThreshold: 50,
+          itemVisiblePercentThreshold: 80,
         }}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={true}
       />
     </BottomSheet>
   );
@@ -96,26 +119,36 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
   },
+  handleContainer: {
+    backgroundColor: COLORS.BACKGROUND,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 12,
+  },
   indicator: {
-    backgroundColor: COLORS.TEXT_TERTIARY,
+    alignSelf: 'center',
     width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.TEXT_TERTIARY,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 18,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.BORDER,
   },
   title: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '600',
     color: COLORS.TEXT_PRIMARY,
   },
   count: {
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '400',
     color: COLORS.TEXT_SECONDARY,
   },
   listContent: {

@@ -8,7 +8,10 @@
       "Bash(nvm use:*)",
       "Bash(npm uninstall:*)",
       "Bash(npx expo prebuild:*)",
-      "Bash(npx expo run:ios)"
+      "Bash(npx expo run:ios)",
+      "Bash(npx expo:*)",
+      "Bash(xcrun simctl:*)",
+      "Bash(open:*)"
     ]
   }
 }
