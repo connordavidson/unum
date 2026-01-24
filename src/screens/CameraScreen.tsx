@@ -273,7 +273,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           </View>
 
           <Text style={styles.hint}>
-            {!isCameraReady ? 'Loading camera...' : isRecording ? 'Recording...' : 'Tap for photo, hold for video'}
+            {isRecording ? 'Recording...' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
           </Text>
         </View>
       </CameraView>
