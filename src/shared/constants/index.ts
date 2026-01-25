@@ -1,3 +1,8 @@
+import Constants from 'expo-constants';
+
+// Get feature flags from expo-constants (populated from .env via app.config.ts)
+const extra = Constants.expoConfig?.extra ?? {};
+
 // ============ Map Configuration ============
 export const MAP_CONFIG = {
   DEFAULT_CENTER: {
@@ -42,7 +47,7 @@ export const STORAGE_KEYS = {
 // ============ API Configuration ============
 export const API_CONFIG = {
   BASE_URL: "/api",
-  USE_TEST_DATA: true,
+  USE_TEST_DATA: extra.useTestData ?? true,
 };
 
 // ============ Feed Configuration ============
@@ -122,3 +127,46 @@ export const circularButtonStyle = (size: number, backgroundColor: string) => ({
   justifyContent: "center" as const,
   alignItems: "center" as const,
 });
+
+// ============ Feature Flags ============
+export const FEATURE_FLAGS = {
+  USE_AWS_BACKEND: extra.useAwsBackend ?? false,
+  ENABLE_OFFLINE_SYNC: extra.enableOfflineSync ?? true,
+  ENABLE_BACKGROUND_SYNC: extra.enableBackgroundSync ?? false,
+};
+
+// ============ BFF Configuration ============
+export const BFF_CONFIG = {
+  SYNC_INTERVAL_MS: 30000,       // 30 seconds
+  SYNC_RETRY_DELAY_MS: 5000,     // 5 seconds base retry delay
+  MAX_SYNC_RETRIES: 3,
+  SYNC_BATCH_SIZE: 10,           // Max items to sync at once
+};
+
+// ============ Additional Storage Keys for BFF ============
+export const BFF_STORAGE_KEYS = {
+  DEVICE_ID: "unum_device_id",
+  SYNC_QUEUE: "unum_sync_queue",
+  LAST_SYNC: "unum_last_sync",
+  CACHED_UPLOADS: "unum_cached_uploads",
+  MIGRATION_STATUS: "unum_migration_status",
+};
+
+// ============ Migration Configuration ============
+export const MIGRATION_CONFIG = {
+  CURRENT_VERSION: 1,
+  AUTO_MIGRATE: true,            // Automatically run migrations on app start
+};
+
+// ============ Data Mode Configuration ============
+export type DataMode = 'local-only' | 'dual-write' | 'remote-first';
+
+/**
+ * Current data mode:
+ * - 'local-only': All data stays local (default, USE_AWS_BACKEND = false)
+ * - 'dual-write': Write to local first, then sync to remote
+ * - 'remote-first': Prefer remote data, cache locally
+ */
+export const DATA_MODE: DataMode = FEATURE_FLAGS.USE_AWS_BACKEND
+  ? (FEATURE_FLAGS.ENABLE_OFFLINE_SYNC ? 'dual-write' : 'remote-first')
+  : 'local-only';

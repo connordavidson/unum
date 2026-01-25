@@ -1,8 +1,13 @@
 import { useCallback, useState } from 'react';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { Alert } from 'react-native';
 import type { Upload } from '../shared/types';
+
+// Access legacy properties that may not be in types but exist at runtime
+const FileSystemCompat = FileSystem as typeof FileSystem & {
+  documentDirectory?: string | null;
+};
 
 interface UseDownloadResult {
   downloadMedia: (upload: Upload) => Promise<void>;
@@ -26,7 +31,7 @@ export function useDownload(): UseDownloadResult {
       // Determine file extension
       const extension = upload.type === 'video' ? 'mp4' : 'jpg';
       const fileName = `unum_${upload.id}_${Date.now()}.${extension}`;
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      const fileUri = `${FileSystemCompat.documentDirectory}${fileName}`;
 
       // Download the file
       const downloadResult = await FileSystem.downloadAsync(upload.data, fileUri);
