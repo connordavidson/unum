@@ -18,6 +18,8 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
@@ -40,15 +42,90 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     facing,
     isRecording,
     isCameraReady,
+    zoom,
     capturedPhoto,
     recordedVideo,
     cameraRef,
     onCameraReady,
     flipCamera,
     clearMedia,
+    setZoom,
     handlePressIn,
     handlePressOut,
   } = useCamera();
+
+  // Shared values for vertical slide-to-zoom
+  const isRecordingShared = useSharedValue(false);
+  const baselineY = useSharedValue(0);
+  const hasSetBaseline = useSharedValue(false);
+  const gestureActive = useSharedValue(false);
+
+  // Keep shared value in sync with isRecording state
+  useEffect(() => {
+    isRecordingShared.value = isRecording;
+    // Reset baseline when recording stops
+    if (!isRecording) {
+      hasSetBaseline.value = false;
+      baselineY.value = 0;
+    }
+  }, [isRecording, isRecordingShared, hasSetBaseline, baselineY]);
+
+  // Callbacks for gesture handlers (must be called via runOnJS from worklets)
+  const onGestureStart = useCallback(() => {
+    if (isCameraReady) {
+      handlePressIn();
+    }
+  }, [isCameraReady, handlePressIn]);
+
+  const onGestureEnd = useCallback(() => {
+    handlePressOut();
+  }, [handlePressOut]);
+
+  const updateZoom = useCallback((newZoom: number) => {
+    setZoom(newZoom);
+  }, [setZoom]);
+
+  // Pan gesture for capture button: handles tap, hold-to-record, and slide-to-zoom
+  const captureGesture = Gesture.Pan()
+    .onBegin(() => {
+      'worklet';
+      gestureActive.value = true;
+      runOnJS(onGestureStart)();
+    })
+    .onUpdate((event) => {
+      'worklet';
+      // Only zoom while recording
+      if (isRecordingShared.value) {
+        // Set baseline on first movement after recording starts
+        if (!hasSetBaseline.value) {
+          baselineY.value = event.absoluteY;
+          hasSetBaseline.value = true;
+        }
+        // Calculate zoom: moving UP (negative delta) = zoom IN
+        const delta = -(event.absoluteY - baselineY.value);
+        // Scale: ~400px of movement = full zoom range
+        const newZoom = Math.max(0, Math.min(1, delta / 400));
+        runOnJS(updateZoom)(newZoom);
+      }
+    })
+    .onEnd(() => {
+      'worklet';
+      if (gestureActive.value) {
+        gestureActive.value = false;
+        hasSetBaseline.value = false;
+        baselineY.value = 0;
+        runOnJS(onGestureEnd)();
+      }
+    })
+    .onFinalize(() => {
+      'worklet';
+      if (gestureActive.value) {
+        gestureActive.value = false;
+        hasSetBaseline.value = false;
+        baselineY.value = 0;
+        runOnJS(onGestureEnd)();
+      }
+    });
 
   const [caption, setCaption] = React.useState('');
   const [isUploading, setIsUploading] = React.useState(false);
@@ -291,7 +368,14 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   // Camera view
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={styles.camera} facing={facing} mode="video" onCameraReady={onCameraReady} />
+      <CameraView
+        ref={cameraRef}
+        style={styles.camera}
+        facing={facing}
+        mode="video"
+        zoom={zoom}
+        onCameraReady={onCameraReady}
+      />
 
       {/* Overlay controls - positioned absolutely on top of camera */}
       {/* Close button */}
@@ -313,22 +397,25 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             <Ionicons name="camera-reverse" size={28} color={COLORS.BACKGROUND} />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.captureButton, isRecording && styles.captureButtonRecording, !isCameraReady && styles.captureButtonDisabled]}
-            onPressIn={isCameraReady ? handlePressIn : undefined}
-            onPressOut={isCameraReady ? handlePressOut : undefined}
-            activeOpacity={0.8}
-            disabled={!isCameraReady}
-          >
-            {isRecording && <View style={styles.recordingIndicator} />}
-          </TouchableOpacity>
+          {/* Capture button with pan gesture for hold-to-record and slide-to-zoom */}
+          <GestureDetector gesture={captureGesture}>
+            <View
+              style={[
+                styles.captureButton,
+                isRecording && styles.captureButtonRecording,
+                !isCameraReady && styles.captureButtonDisabled,
+              ]}
+            >
+              {isRecording && <View style={styles.recordingIndicator} />}
+            </View>
+          </GestureDetector>
 
           {/* Empty space to balance the layout */}
           <View style={styles.flipButtonPlaceholder} />
         </View>
 
         <Text style={styles.hint}>
-          {isRecording ? 'Recording...' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
+          {isRecording ? 'Recording... Slide up to zoom' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
         </Text>
       </View>
     </View>
