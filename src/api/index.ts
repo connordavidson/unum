@@ -10,5 +10,5 @@ export * from './config';
 // Types
 export * from './types';
 
-// Clients will be added here
-// export * from './clients';
+// Clients
+export * from './clients';
