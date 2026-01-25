@@ -15,6 +15,7 @@ import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet from '@gorhom/bottom-sheet';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
 import { useMapState } from '../hooks/useMapState';
@@ -83,7 +84,14 @@ export function MapScreen({ navigation }: MapScreenProps) {
       }, 500);
     }
   }, [position]);
-  const { uploads, userVotes, handleVote } = useUploadData();
+  const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
+
+  // Refresh uploads when screen comes into focus (e.g., after posting)
+  useFocusEffect(
+    useCallback(() => {
+      refreshUploads();
+    }, [refreshUploads])
+  );
   const { downloadMedia } = useDownload();
   const {
     region,
