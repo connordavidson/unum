@@ -14,7 +14,8 @@
       "Bash(open:*)",
       "Bash(tree:*)",
       "Bash(npx tsc:*)",
-      "Bash(node --version)"
+      "Bash(node --version)",
+      "Bash(grep:*)"
     ]
   }
 }

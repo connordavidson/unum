@@ -7,8 +7,8 @@
 // Interfaces
 export * from './interfaces';
 
-// Local implementations will be added here
-// export * from './local';
+// Local implementations
+export * from './local';
 
 // Remote implementations will be added here
 // export * from './remote';

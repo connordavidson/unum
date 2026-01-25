@@ -1,8 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS, API_CONFIG } from '../shared/constants';
+import { STORAGE_KEYS, API_CONFIG, FEATURE_FLAGS } from '../shared/constants';
 import { getStoredJSON, setStoredJSON } from '../shared/utils';
 import { TEST_UPLOADS } from '../data/testUploads';
+import {
+  getLocalUploadRepository,
+  getLocalVoteRepository,
+  LocalUploadRepository,
+  LocalVoteRepository,
+} from '../repositories/local';
 import type { Upload, CreateUploadData, VoteType, UserVotes } from '../shared/types';
 
 interface UseUploadDataResult {
@@ -26,6 +32,25 @@ export function useUploadData(): UseUploadDataResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Repository references (for future use with FEATURE_FLAGS.USE_AWS_BACKEND)
+  const uploadRepoRef = useRef<LocalUploadRepository | null>(null);
+  const voteRepoRef = useRef<LocalVoteRepository | null>(null);
+
+  // Get or create repository instances
+  const getUploadRepo = useCallback(() => {
+    if (!uploadRepoRef.current) {
+      uploadRepoRef.current = getLocalUploadRepository();
+    }
+    return uploadRepoRef.current;
+  }, []);
+
+  const getVoteRepo = useCallback(() => {
+    if (!voteRepoRef.current) {
+      voteRepoRef.current = getLocalVoteRepository();
+    }
+    return voteRepoRef.current;
+  }, []);
+
   // Load uploads from storage (or seed with test data)
   const loadUploads = useCallback(async () => {
     try {
@@ -35,29 +60,28 @@ export function useUploadData(): UseUploadDataResult {
         setUploads(TEST_UPLOADS);
         await setStoredJSON(STORAGE_KEYS.UPLOADS, TEST_UPLOADS);
       } else {
-        const stored = await getStoredJSON<Upload[]>(STORAGE_KEYS.UPLOADS);
-        if (stored) {
-          setUploads(stored);
-        }
+        // Use repository for loading
+        const repo = getUploadRepo();
+        const storedUploads = await repo.getAllLegacy();
+        setUploads(storedUploads);
       }
       setError(null);
     } catch (err) {
       console.error('Failed to load uploads:', err);
       setError('Failed to load uploads');
     }
-  }, []);
+  }, [getUploadRepo]);
 
   // Load user votes from storage
   const loadUserVotes = useCallback(async () => {
     try {
-      const stored = await getStoredJSON<UserVotes>(STORAGE_KEYS.USER_VOTES);
-      if (stored) {
-        setUserVotes(stored);
-      }
+      const repo = getVoteRepo();
+      const storedVotes = await repo.getUserVotesLegacy();
+      setUserVotes(storedVotes);
     } catch (err) {
       console.error('Failed to load user votes:', err);
     }
-  }, []);
+  }, [getVoteRepo]);
 
   // Initial load
   useEffect(() => {
@@ -71,15 +95,17 @@ export function useUploadData(): UseUploadDataResult {
 
   // Save uploads to storage
   const saveUploads = useCallback(async (newUploads: Upload[]) => {
-    await setStoredJSON(STORAGE_KEYS.UPLOADS, newUploads);
+    const repo = getUploadRepo();
+    await repo.saveAllLegacy(newUploads);
     setUploads(newUploads);
-  }, []);
+  }, [getUploadRepo]);
 
   // Save user votes to storage
   const saveUserVotes = useCallback(async (newVotes: UserVotes) => {
-    await setStoredJSON(STORAGE_KEYS.USER_VOTES, newVotes);
+    const repo = getVoteRepo();
+    await repo.saveUserVotesLegacy(newVotes);
     setUserVotes(newVotes);
-  }, []);
+  }, [getVoteRepo]);
 
   // Create a new upload
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {
@@ -107,6 +133,7 @@ export function useUploadData(): UseUploadDataResult {
   // Vote on an upload
   const handleVote = useCallback(async (uploadId: number, voteType: VoteType) => {
     try {
+      const voteRepo = getVoteRepo();
       const currentVote = userVotes[uploadId];
       let voteDelta = 0;
       let newUserVotes = { ...userVotes };
@@ -114,15 +141,15 @@ export function useUploadData(): UseUploadDataResult {
       if (currentVote === voteType) {
         // Remove vote
         delete newUserVotes[uploadId];
-        voteDelta = voteType === 'up' ? -1 : 1;
+        voteDelta = voteRepo.calculateVoteDelta(currentVote, null);
       } else if (currentVote) {
         // Change vote
         newUserVotes[uploadId] = voteType;
-        voteDelta = voteType === 'up' ? 2 : -2;
+        voteDelta = voteRepo.calculateVoteDelta(currentVote, voteType);
       } else {
         // New vote
         newUserVotes[uploadId] = voteType;
-        voteDelta = voteType === 'up' ? 1 : -1;
+        voteDelta = voteRepo.calculateVoteDelta(null, voteType);
       }
 
       const newUploads = uploads.map((upload) =>
@@ -142,7 +169,7 @@ export function useUploadData(): UseUploadDataResult {
       setError('Failed to update vote');
       throw err;
     }
-  }, [uploads, userVotes, saveUploads, saveUserVotes]);
+  }, [uploads, userVotes, saveUploads, saveUserVotes, getVoteRepo]);
 
   // Refresh uploads
   const refreshUploads = useCallback(async () => {
