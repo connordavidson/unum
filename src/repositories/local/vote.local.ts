@@ -5,7 +5,7 @@
  * Maintains backward compatibility with existing UserVotes format.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import { getStoredJSON, setStoredJSON } from '../../shared/utils/storage';
 import { STORAGE_KEYS, BFF_STORAGE_KEYS } from '../../shared/constants';
 import type { VoteType, UserVotes } from '../../shared/types';
@@ -49,7 +49,7 @@ export class LocalVoteRepository implements IVoteRepository {
     }
 
     // Generate new device ID
-    this.deviceId = uuidv4();
+    this.deviceId = Crypto.randomUUID();
     await setStoredJSON(BFF_STORAGE_KEYS.DEVICE_ID, this.deviceId);
     return this.deviceId;
   }

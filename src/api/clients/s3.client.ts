@@ -13,7 +13,7 @@ import {
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { awsConfig, s3Config } from '../config';
 import { withRetry } from './retry';
 import type { MediaType } from '../../shared/types';

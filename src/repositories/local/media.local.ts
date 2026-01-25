@@ -5,7 +5,7 @@
  * Handles local file caching and media URL resolution.
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { MediaType } from '../../shared/types';
 import type {
   IMediaRepository,

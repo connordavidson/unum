@@ -40,6 +40,7 @@ export interface BFFUpload {
 export interface CreateUploadInput {
   type: MediaType;
   mediaUrl: string;
+  mediaKey?: string;           // S3 object key (for remote storage)
   coordinates: Coordinates;
   caption?: string;
   deviceId: string;

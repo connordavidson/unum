@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import { FEATURE_FLAGS, BFF_STORAGE_KEYS } from '../shared/constants';
 import { getStoredJSON, setStoredJSON } from '../shared/utils';
 import {
@@ -66,7 +66,7 @@ export function useBFFInit(options: UseBFFInitOptions = {}): UseBFFInitResult {
       return existing;
     }
 
-    const newId = uuidv4();
+    const newId = Crypto.randomUUID();
     await setStoredJSON(BFF_STORAGE_KEYS.DEVICE_ID, newId);
     return newId;
   }, []);

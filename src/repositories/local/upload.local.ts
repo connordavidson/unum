@@ -5,7 +5,7 @@
  * Maintains backward compatibility with existing Upload format.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import { getStoredJSON, setStoredJSON } from '../../shared/utils/storage';
 import { STORAGE_KEYS, API_CONFIG, BFF_STORAGE_KEYS } from '../../shared/constants';
 import { TEST_UPLOADS } from '../../data/testUploads';
@@ -86,7 +86,7 @@ export class LocalUploadRepository implements IUploadRepository {
     }
 
     // Generate new device ID
-    this.deviceId = uuidv4();
+    this.deviceId = Crypto.randomUUID();
     await setStoredJSON(BFF_STORAGE_KEYS.DEVICE_ID, this.deviceId);
     return this.deviceId;
   }

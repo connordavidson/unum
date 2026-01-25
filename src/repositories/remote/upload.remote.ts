@@ -5,7 +5,7 @@
  * Uses single-table design with geohash for location queries.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import ngeohash from 'ngeohash';
 import {
   createUpload as dynamoCreateUpload,
@@ -123,15 +123,18 @@ export class RemoteUploadRepository implements IUploadRepository {
 
   async create(input: CreateUploadInput): Promise<BFFUpload> {
     const now = new Date().toISOString();
-    const id = uuidv4();
+    const id = Crypto.randomUUID();
     const [latitude, longitude] = input.coordinates;
     const geohash = ngeohash.encode(latitude, longitude, dynamoConfig.geohashPrecision);
+
+    // Use mediaKey if provided (from S3 upload), fallback to mediaUrl for local-only
+    const mediaKey = input.mediaKey || input.mediaUrl;
 
     const upload: BFFUpload = {
       id,
       type: input.type,
       mediaUrl: input.mediaUrl,
-      mediaKey: input.mediaUrl, // Service layer will set actual S3 key
+      mediaKey,
       coordinates: input.coordinates,
       timestamp: now,
       caption: input.caption,
@@ -143,7 +146,7 @@ export class RemoteUploadRepository implements IUploadRepository {
       syncStatus: 'synced',
     };
 
-    const dynamoItem = toDynamoItem(upload, input.mediaUrl);
+    const dynamoItem = toDynamoItem(upload, mediaKey);
     await dynamoCreateUpload(dynamoItem);
 
     return upload;

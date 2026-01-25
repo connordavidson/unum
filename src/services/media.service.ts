@@ -71,6 +71,10 @@ export class MediaService {
   async upload(params: UploadMediaParams): Promise<MediaUploadResult> {
     const { localPath, uploadId, mediaType, onProgress } = params;
 
+    console.log('[MediaService] upload() called');
+    console.log('[MediaService] useRemote:', this.useRemote);
+    console.log('[MediaService] localPath:', localPath);
+
     // Always cache locally first
     const localResult = await this.localRepo.upload(
       localPath,
@@ -86,6 +90,7 @@ export class MediaService {
 
     // If remote is not enabled, return local result
     if (!this.useRemote) {
+      console.log('[MediaService] Remote not enabled, returning local result');
       if (onProgress) {
         onProgress(100);
       }
@@ -93,29 +98,24 @@ export class MediaService {
     }
 
     // Upload to S3
-    try {
-      const remoteResult = await this.remoteRepo.upload(
-        localPath,
-        uploadId,
-        mediaType,
-        (progress) => {
-          // Remote upload uses 20-100% of progress
-          if (onProgress) {
-            onProgress(20 + Math.round(progress * 0.8));
-          }
+    // Note: We throw errors during initial setup/debugging.
+    // For production offline-first behavior, wrap in try/catch and return localResult.
+    console.log('[MediaService] Uploading to S3...');
+    const remoteResult = await this.remoteRepo.upload(
+      localPath,
+      uploadId,
+      mediaType,
+      (progress) => {
+        // Remote upload uses 20-100% of progress
+        if (onProgress) {
+          onProgress(20 + Math.round(progress * 0.8));
         }
-      );
-
-      // Return remote result with S3 key
-      return remoteResult;
-    } catch (error) {
-      console.error('Failed to upload to S3:', error);
-      // Fall back to local result
-      if (onProgress) {
-        onProgress(100);
       }
-      return localResult;
-    }
+    );
+
+    // Return remote result with S3 key
+    console.log('[MediaService] S3 upload successful:', remoteResult.key);
+    return remoteResult;
   }
 
   // ============ Download ============

@@ -7,7 +7,7 @@
  * - Prepares data for remote sync
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS, BFF_STORAGE_KEYS } from '../shared/constants';
 import { getStoredJSON, setStoredJSON } from '../shared/utils';
@@ -45,7 +45,7 @@ async function getOrCreateDeviceId(): Promise<string> {
     return existing;
   }
 
-  const newId = uuidv4();
+  const newId = Crypto.randomUUID();
   await setStoredJSON(BFF_STORAGE_KEYS.DEVICE_ID, newId);
   return newId;
 }

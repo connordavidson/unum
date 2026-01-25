@@ -32,6 +32,7 @@ import type {
 export interface CreateUploadParams {
   type: MediaType;
   mediaUrl: string;
+  mediaKey?: string;           // S3 object key (for remote storage)
   coordinates: Coordinates;
   caption?: string;
 }
@@ -76,28 +77,35 @@ export class UploadService {
    * Always writes to local first, then remote if enabled
    */
   async createUpload(params: CreateUploadParams): Promise<BFFUpload> {
+    console.log('[UploadService] createUpload() called');
+    console.log('[UploadService] useRemote:', this.useRemote);
+    console.log('[UploadService] mediaKey:', params.mediaKey);
+
     const input: CreateUploadInput = {
       type: params.type,
       mediaUrl: params.mediaUrl,
+      mediaKey: params.mediaKey,
       coordinates: params.coordinates,
       caption: params.caption,
       deviceId: this.config.deviceId,
     };
 
     // Always create locally first
+    console.log('[UploadService] Creating local upload...');
     const localUpload = await this.localRepo.create(input);
+    console.log('[UploadService] Local upload created:', localUpload.id);
 
     // If remote is enabled, also create remotely
     if (this.useRemote) {
-      try {
-        await this.remoteRepo.create(input);
-        // Mark local as synced
-        await this.localRepo.markSynced(localUpload.id);
-      } catch (error) {
-        // Mark as pending sync
-        console.error('Failed to sync upload to remote:', error);
-        // Local upload is still valid, will be synced later
-      }
+      console.log('[UploadService] Creating remote upload in DynamoDB...');
+      // Note: We throw errors during initial setup/debugging.
+      // For production offline-first behavior, wrap in try/catch and mark as pending sync.
+      await this.remoteRepo.create(input);
+      console.log('[UploadService] DynamoDB upload successful');
+      // Mark local as synced
+      await this.localRepo.markSynced(localUpload.id);
+    } else {
+      console.log('[UploadService] Remote not enabled, skipping DynamoDB');
     }
 
     return localUpload;

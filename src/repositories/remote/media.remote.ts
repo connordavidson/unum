@@ -5,7 +5,7 @@
  * Uses presigned URLs for uploads and downloads with local caching.
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   getPresignedUploadUrl,
   getPresignedDownloadUrl,
