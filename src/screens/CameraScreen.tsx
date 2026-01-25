@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,12 @@ import {
   TouchableOpacity,
   Image,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
+  Keyboard,
+  TouchableWithoutFeedback,
+  Animated,
 } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -50,6 +52,40 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
   const [caption, setCaption] = React.useState('');
   const [isUploading, setIsUploading] = React.useState(false);
+
+  // Keyboard animation
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (event) => {
+        Animated.spring(keyboardOffset, {
+          toValue: -event.endCoordinates.height + 164,
+          useNativeDriver: true,
+          speed: 20,
+          bounciness: 0,
+        }).start();
+      }
+    );
+
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        Animated.spring(keyboardOffset, {
+          toValue: 0,
+          useNativeDriver: true,
+          speed: 20,
+          bounciness: 0,
+        }).start();
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, [keyboardOffset]);
 
   // Video player for preview
   const videoPlayer = useVideoPlayer(recordedVideo || '', (player) => {
@@ -166,17 +202,15 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   // Preview captured media
   if (capturedPhoto || recordedVideo) {
     return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <View style={styles.previewContainer}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.container}>
+          {/* Preview fills entire screen and stays fixed */}
           {capturedPhoto ? (
-            <Image source={{ uri: capturedPhoto }} style={styles.preview} />
+            <Image source={{ uri: capturedPhoto }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           ) : (
             <VideoView
               player={videoPlayer}
-              style={styles.preview}
+              style={StyleSheet.absoluteFill}
               contentFit="cover"
               nativeControls={false}
             />
@@ -189,20 +223,9 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           >
             <Ionicons name="close" size={28} color={COLORS.BACKGROUND} />
           </TouchableOpacity>
-        </View>
 
-        {/* Caption and actions */}
-        <View style={[styles.previewActions, { paddingBottom: insets.bottom + 16 }]}>
-          <TextInput
-            style={styles.captionInput}
-            placeholder="Add a caption..."
-            placeholderTextColor={COLORS.TEXT_TERTIARY}
-            value={caption}
-            onChangeText={setCaption}
-            maxLength={200}
-            multiline
-          />
-
+        {/* Action buttons - fixed at bottom */}
+        <View style={[styles.previewActionsContainer, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={styles.actionIconButton}
@@ -238,11 +261,30 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             onPress={handleDelayedUpload}
             disabled={isUploading || !position}
           >
-            <Ionicons name="time-outline" size={20} color={COLORS.TEXT_SECONDARY} />
+            <Ionicons name="time-outline" size={20} color={COLORS.BACKGROUND} />
             <Text style={styles.delayText}>Post in 5 minutes</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+
+        {/* Caption input - slides up with keyboard */}
+        <Animated.View
+          style={[
+            styles.captionContainer,
+            { transform: [{ translateY: keyboardOffset }] },
+          ]}
+        >
+          <TextInput
+            style={styles.captionInput}
+            placeholder="Add a caption..."
+            placeholderTextColor={COLORS.TEXT_TERTIARY}
+            value={caption}
+            onChangeText={setCaption}
+            maxLength={200}
+            multiline
+          />
+        </Animated.View>
+        </View>
+      </TouchableWithoutFeedback>
     );
   }
 
@@ -392,27 +434,31 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     fontSize: 16,
   },
-  previewContainer: {
-    flex: 1,
-  },
-  preview: {
-    flex: 1,
-  },
-  previewActions: {
-    backgroundColor: COLORS.BACKGROUND,
+  previewActionsContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 16,
-    paddingTop: 16,
+  },
+  captionContainer: {
+    position: 'absolute',
+    bottom: 180,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
   },
   captionInput: {
-    backgroundColor: COLORS.BACKGROUND_LIGHT,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    fontSize: 18,
     color: COLORS.TEXT_PRIMARY,
-    minHeight: 48,
+    minHeight: 50,
     maxHeight: 100,
-    marginBottom: 16,
+    textAlignVertical: 'center',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -423,7 +469,7 @@ const styles = StyleSheet.create({
     width: BUTTON_SIZES.LARGE,
     height: BUTTON_SIZES.LARGE,
     borderRadius: BUTTON_SIZES.LARGE / 2,
-    backgroundColor: COLORS.BACKGROUND_LIGHT,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -445,9 +491,13 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 12,
     marginTop: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    alignSelf: 'center',
   },
   delayText: {
     fontSize: 14,
-    color: COLORS.TEXT_SECONDARY,
+    color: COLORS.BACKGROUND,
   },
 });

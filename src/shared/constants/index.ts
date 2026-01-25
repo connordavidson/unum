@@ -6,8 +6,8 @@ const extra = Constants.expoConfig?.extra ?? {};
 // ============ Map Configuration ============
 export const MAP_CONFIG = {
   DEFAULT_CENTER: {
-    latitude: 35.2271,
-    longitude: -80.8431,
+    latitude: 38.8951,
+    longitude: -77.0252,
   },
   DEFAULT_ZOOM: 15,
   DEFAULT_DELTA: {

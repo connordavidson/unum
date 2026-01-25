@@ -35,10 +35,9 @@ type MapScreenProps = {
 export function MapScreen({ navigation }: MapScreenProps) {
   const mapRef = useRef<MapView>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const hasInitializedRef = useRef(false);
   const insets = useSafeAreaInsets();
 
-  const { position } = useLocation();
+  const { position, loading: locationLoading } = useLocation();
 
   // Search state
   const [searchVisible, setSearchVisible] = useState(false);
@@ -74,16 +73,6 @@ export function MapScreen({ navigation }: MapScreenProps) {
     }
   }, [searchQuery]);
 
-  // Center on user's location once on startup
-  useEffect(() => {
-    if (position && !hasInitializedRef.current && mapRef.current) {
-      hasInitializedRef.current = true;
-      mapRef.current.animateToRegion({
-        ...position,
-        ...MAP_CONFIG.DEFAULT_DELTA,
-      }, 500);
-    }
-  }, [position]);
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
@@ -132,6 +121,15 @@ export function MapScreen({ navigation }: MapScreenProps) {
     bottomSheetRef.current?.snapToIndex(0);
   }, []);
 
+  // Show loading state while getting location
+  if (locationLoading || !position) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.PRIMARY} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <MapView
@@ -139,7 +137,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         initialRegion={{
-          ...(position || MAP_CONFIG.DEFAULT_CENTER),
+          ...position,
           ...MAP_CONFIG.DEFAULT_DELTA,
         }}
         onRegionChangeComplete={handleRegionChange}
@@ -303,6 +301,11 @@ export function MapScreen({ navigation }: MapScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.BACKGROUND,
   },
   map: {
     flex: 1,
