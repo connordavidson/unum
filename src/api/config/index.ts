@@ -1,19 +1,36 @@
 /**
  * AWS Configuration
  *
- * In production, these values should come from environment variables
- * or a secure configuration service.
+ * Configuration values are loaded from environment variables via app.config.ts
+ * and exposed through expo-constants.
+ *
+ * To configure:
+ * 1. Copy .env.example to .env
+ * 2. Fill in your AWS credentials
+ * 3. Restart the Metro bundler
  */
 
+import Constants from 'expo-constants';
 import type { AWSConfig } from '../types';
 
-// Placeholder config - replace with actual values or env vars
+// Get config from expo-constants (populated from app.config.ts)
+const extra = Constants.expoConfig?.extra ?? {};
+
 export const awsConfig: AWSConfig = {
-  region: process.env.AWS_REGION || 'us-east-1',
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  s3Bucket: process.env.S3_BUCKET || 'unum-media-dev',
-  dynamoTableName: process.env.DYNAMO_TABLE || 'unum-data-dev',
+  region: extra.awsRegion || 'us-east-1',
+  accessKeyId: extra.awsAccessKeyId || '',
+  secretAccessKey: extra.awsSecretAccessKey || '',
+  s3Bucket: extra.s3Bucket || 'unum-media-dev',
+  dynamoTableName: extra.dynamoTable || 'unum-data-dev',
+};
+
+// Feature flags from app.config.ts
+export const featureFlags = {
+  useAwsBackend: extra.useAwsBackend ?? false,
+  enableOfflineSync: extra.enableOfflineSync ?? true,
+  enableBackgroundSync: extra.enableBackgroundSync ?? false,
+  useTestData: extra.useTestData ?? true,
+  debug: extra.debug ?? false,
 };
 
 // S3 configuration

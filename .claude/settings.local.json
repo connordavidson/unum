@@ -15,7 +15,8 @@
       "Bash(tree:*)",
       "Bash(npx tsc:*)",
       "Bash(node --version)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(chmod:*)"
     ]
   }
 }

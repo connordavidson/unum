@@ -1,3 +1,8 @@
+import Constants from 'expo-constants';
+
+// Get feature flags from expo-constants (populated from .env via app.config.ts)
+const extra = Constants.expoConfig?.extra ?? {};
+
 // ============ Map Configuration ============
 export const MAP_CONFIG = {
   DEFAULT_CENTER: {
@@ -42,7 +47,7 @@ export const STORAGE_KEYS = {
 // ============ API Configuration ============
 export const API_CONFIG = {
   BASE_URL: "/api",
-  USE_TEST_DATA: true,
+  USE_TEST_DATA: extra.useTestData ?? true,
 };
 
 // ============ Feed Configuration ============
@@ -125,9 +130,9 @@ export const circularButtonStyle = (size: number, backgroundColor: string) => ({
 
 // ============ Feature Flags ============
 export const FEATURE_FLAGS = {
-  USE_AWS_BACKEND: false,        // Enable AWS S3/DynamoDB integration
-  ENABLE_OFFLINE_SYNC: true,     // Enable offline queue and sync
-  ENABLE_BACKGROUND_SYNC: false, // Enable background sync on reconnect
+  USE_AWS_BACKEND: extra.useAwsBackend ?? false,
+  ENABLE_OFFLINE_SYNC: extra.enableOfflineSync ?? true,
+  ENABLE_BACKGROUND_SYNC: extra.enableBackgroundSync ?? false,
 };
 
 // ============ BFF Configuration ============
