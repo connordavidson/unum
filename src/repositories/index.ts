@@ -10,5 +10,5 @@ export * from './interfaces';
 // Local implementations
 export * from './local';
 
-// Remote implementations will be added here
-// export * from './remote';
+// Remote implementations
+export * from './remote';
