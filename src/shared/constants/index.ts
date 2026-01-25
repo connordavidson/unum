@@ -144,4 +144,24 @@ export const BFF_STORAGE_KEYS = {
   SYNC_QUEUE: "unum_sync_queue",
   LAST_SYNC: "unum_last_sync",
   CACHED_UPLOADS: "unum_cached_uploads",
+  MIGRATION_STATUS: "unum_migration_status",
 };
+
+// ============ Migration Configuration ============
+export const MIGRATION_CONFIG = {
+  CURRENT_VERSION: 1,
+  AUTO_MIGRATE: true,            // Automatically run migrations on app start
+};
+
+// ============ Data Mode Configuration ============
+export type DataMode = 'local-only' | 'dual-write' | 'remote-first';
+
+/**
+ * Current data mode:
+ * - 'local-only': All data stays local (default, USE_AWS_BACKEND = false)
+ * - 'dual-write': Write to local first, then sync to remote
+ * - 'remote-first': Prefer remote data, cache locally
+ */
+export const DATA_MODE: DataMode = FEATURE_FLAGS.USE_AWS_BACKEND
+  ? (FEATURE_FLAGS.ENABLE_OFFLINE_SYNC ? 'dual-write' : 'remote-first')
+  : 'local-only';
