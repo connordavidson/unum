@@ -388,6 +388,10 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
       {/* Capture controls */}
       <View style={[styles.controls, { paddingBottom: insets.bottom + 32 }]}>
+        <Text style={styles.hint}>
+          {isRecording ? 'Recording... Slide up to zoom' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
+        </Text>
+
         <View style={styles.captureRow}>
           {/* Flip camera button */}
           <TouchableOpacity
@@ -413,10 +417,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           {/* Empty space to balance the layout */}
           <View style={styles.flipButtonPlaceholder} />
         </View>
-
-        <Text style={styles.hint}>
-          {isRecording ? 'Recording... Slide up to zoom' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
-        </Text>
       </View>
     </View>
   );
@@ -496,6 +496,7 @@ const styles = StyleSheet.create({
   hint: {
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 14,
+    marginBottom: 16,
   },
   permissionText: {
     fontSize: 18,
