@@ -12,6 +12,7 @@ interface UseCameraResult {
   facing: CameraType;
   isRecording: boolean;
   isCameraReady: boolean;
+  zoom: number;
 
   // Captured media
   capturedPhoto: string | null;
@@ -31,6 +32,7 @@ interface UseCameraResult {
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   clearMedia: () => void;
+  setZoom: (zoom: number) => void;
 
   // Press handlers for tap/hold gesture
   handlePressIn: () => void;
@@ -45,6 +47,12 @@ export function useCamera(): UseCameraResult {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [recordedVideo, setRecordedVideo] = useState<string | null>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [zoom, setZoomState] = useState(0);
+
+  const setZoom = useCallback((value: number) => {
+    // Clamp zoom between 0 and 1
+    setZoomState(Math.max(0, Math.min(1, value)));
+  }, []);
 
   const cameraRef = useRef<CameraView>(null);
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -133,6 +141,7 @@ export function useCamera(): UseCameraResult {
   const clearMedia = useCallback(() => {
     setCapturedPhoto(null);
     setRecordedVideo(null);
+    setZoomState(0);
   }, []);
 
   // Tap for photo, hold for video
@@ -169,6 +178,7 @@ export function useCamera(): UseCameraResult {
     facing,
     isRecording,
     isCameraReady,
+    zoom,
     capturedPhoto,
     recordedVideo,
     cameraRef,
@@ -180,6 +190,7 @@ export function useCamera(): UseCameraResult {
     startRecording,
     stopRecording,
     clearMedia,
+    setZoom,
     handlePressIn,
     handlePressOut,
   };
