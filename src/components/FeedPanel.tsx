@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useMemo, useEffect } from 'react';
+import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ViewToken } from 'react-native';
 import BottomSheet, { BottomSheetFlatList, BottomSheetHandleProps } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,12 +23,18 @@ export function FeedPanel({
 }: FeedPanelProps) {
   const insets = useSafeAreaInsets();
   const visibleItemsRef = useRef<Set<number>>(new Set());
+  const [isSheetExpanded, setIsSheetExpanded] = useState(false);
 
   const snapPoints = [
     SHEET_SNAP_POINTS.MINIMIZED,
     SHEET_SNAP_POINTS.COLLAPSED,
     SHEET_SNAP_POINTS.EXPANDED,
   ];
+
+  // Track when sheet is expanded (not minimized)
+  const handleSheetChange = useCallback((index: number) => {
+    setIsSheetExpanded(index > 0);
+  }, []);
 
   // Minimize the sheet when there are no items
   useEffect(() => {
@@ -67,10 +73,10 @@ export function FeedPanel({
         upload={item}
         userVote={userVotes[item.id]}
         onVote={onVote}
-        isVisible={visibleItemsRef.current.has(item.id)}
+        isVisible={isSheetExpanded && visibleItemsRef.current.has(item.id)}
       />
     ),
-    [userVotes, onVote]
+    [userVotes, onVote, isSheetExpanded]
   );
 
   const keyExtractor = useCallback((item: Upload) => String(item.id), []);
@@ -95,6 +101,7 @@ export function FeedPanel({
       enablePanDownToClose={false}
       enableContentPanningGesture={false}
       enableHandlePanningGesture={true}
+      onChange={handleSheetChange}
     >
       <BottomSheetFlatList
         data={uploads}

@@ -41,6 +41,9 @@ export function MediaDisplay({
     if (autoPlay) {
       videoPlayer.play();
       setIsPlaying(true);
+    } else {
+      videoPlayer.pause();
+      setIsPlaying(false);
     }
 
     // Set loading to false after a short delay (video is ready)
