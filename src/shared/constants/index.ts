@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 
 // Get feature flags from expo-constants (populated from .env via app.config.ts)
 const extra = Constants.expoConfig?.extra ?? {};
@@ -63,7 +63,7 @@ export const UI_CONFIG = {
 
 // ============ Bottom Sheet Snap Points ============
 export const SHEET_SNAP_POINTS = {
-  MINIMIZED: 80, // Fixed height: handle + header with border
+  MINIMIZED: 75, // Fixed height: handle + header with border
   COLLAPSED: "60%",
   EXPANDED: "100%",
 };
@@ -137,10 +137,10 @@ export const FEATURE_FLAGS = {
 
 // ============ BFF Configuration ============
 export const BFF_CONFIG = {
-  SYNC_INTERVAL_MS: 30000,       // 30 seconds
-  SYNC_RETRY_DELAY_MS: 5000,     // 5 seconds base retry delay
+  SYNC_INTERVAL_MS: 30000, // 30 seconds
+  SYNC_RETRY_DELAY_MS: 5000, // 5 seconds base retry delay
   MAX_SYNC_RETRIES: 3,
-  SYNC_BATCH_SIZE: 10,           // Max items to sync at once
+  SYNC_BATCH_SIZE: 10, // Max items to sync at once
 };
 
 // ============ Additional Storage Keys for BFF ============
@@ -155,11 +155,11 @@ export const BFF_STORAGE_KEYS = {
 // ============ Migration Configuration ============
 export const MIGRATION_CONFIG = {
   CURRENT_VERSION: 1,
-  AUTO_MIGRATE: true,            // Automatically run migrations on app start
+  AUTO_MIGRATE: true, // Automatically run migrations on app start
 };
 
 // ============ Data Mode Configuration ============
-export type DataMode = 'local-only' | 'dual-write' | 'remote-first';
+export type DataMode = "local-only" | "dual-write" | "remote-first";
 
 /**
  * Current data mode:
@@ -168,5 +168,7 @@ export type DataMode = 'local-only' | 'dual-write' | 'remote-first';
  * - 'remote-first': Prefer remote data, cache locally
  */
 export const DATA_MODE: DataMode = FEATURE_FLAGS.USE_AWS_BACKEND
-  ? (FEATURE_FLAGS.ENABLE_OFFLINE_SYNC ? 'dual-write' : 'remote-first')
-  : 'local-only';
+  ? FEATURE_FLAGS.ENABLE_OFFLINE_SYNC
+    ? "dual-write"
+    : "remote-first"
+  : "local-only";

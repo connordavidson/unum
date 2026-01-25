@@ -89,7 +89,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
     showIndividualMarkers,
     showUnclusteredMarkers,
     handleRegionChange,
-  } = useMapState(uploads);
+  } = useMapState(uploads, position);
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {

@@ -87,7 +87,7 @@ export function FeedPanel({
   return (
     <BottomSheet
       ref={bottomSheetRef}
-      index={1}
+      index={0}
       snapPoints={snapPoints}
       topInset={insets.top}
       handleComponent={renderHandle}

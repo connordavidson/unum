@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { MAP_CONFIG } from '../shared/constants';
 import { clusterUploads } from '../shared/utils/clustering';
-import type { Upload, MapRegion, ClusterResult } from '../shared/types';
+import type { Upload, MapRegion, ClusterResult, Coordinates } from '../shared/types';
 
 interface UseMapStateResult {
   region: MapRegion;
@@ -18,11 +18,25 @@ function getZoomFromDelta(delta: number): number {
   return Math.round(Math.log2(360 / delta));
 }
 
-export function useMapState(uploads: Upload[]): UseMapStateResult {
-  const [region, setRegion] = useState<MapRegion>({
-    ...MAP_CONFIG.DEFAULT_CENTER,
+export function useMapState(uploads: Upload[], initialPosition?: Coordinates): UseMapStateResult {
+  const [region, setRegion] = useState<MapRegion>(() => ({
+    ...(initialPosition || MAP_CONFIG.DEFAULT_CENTER),
     ...MAP_CONFIG.DEFAULT_DELTA,
-  });
+  }));
+
+  // Track if we've set the initial position yet
+  const hasSetInitialPosition = useRef(false);
+
+  // Sync region with initial position when it first becomes available
+  useEffect(() => {
+    if (initialPosition && !hasSetInitialPosition.current) {
+      hasSetInitialPosition.current = true;
+      setRegion({
+        ...initialPosition,
+        ...MAP_CONFIG.DEFAULT_DELTA,
+      });
+    }
+  }, [initialPosition]);
 
   const zoomLevel = useMemo(() => {
     return getZoomFromDelta(region.latitudeDelta);
