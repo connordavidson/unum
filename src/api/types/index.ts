@@ -73,7 +73,8 @@ export interface DynamoUploadItem {
   timestamp: string;
   caption?: string;
   voteCount: number;
-  deviceId: string;
+  userId: string;                // Apple user ID (authenticated user)
+  deviceId: string;              // Device identifier
   createdAt: string;
   updatedAt: string;
 }

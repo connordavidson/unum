@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from '../shared/constants';
 import { getUploadDataProvider } from '../providers/UploadDataProvider';
 import { getUploadService } from '../services/upload.service';
 import { getMediaService } from '../services/media.service';
-import { useDeviceIdentity } from './useDeviceIdentity';
+import { useUserIdentity } from './useUserIdentity';
 import { useVoting } from './useVoting';
 import type { Upload, CreateUploadData, VoteType, BoundingBox } from '../shared/types';
 
@@ -33,7 +33,7 @@ export function useUploadData(): UseUploadDataResult {
   const [error, setError] = useState<string | null>(null);
 
   // Compose existing hooks
-  const { deviceId, deviceIdRef } = useDeviceIdentity();
+  const { userId, userIdRef, deviceId, deviceIdRef } = useUserIdentity();
   const { userVotes, handleVote: baseHandleVote, loadUserVotes } = useVoting();
 
   // Get singleton provider
@@ -66,31 +66,36 @@ export function useUploadData(): UseUploadDataResult {
 
   // Create upload - uses existing services
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {
-    const currentDeviceId = deviceIdRef.current || deviceId;
+    const currentUserId = userIdRef.current || userId;
 
     if (FEATURE_FLAGS.USE_AWS_BACKEND) {
-      if (!currentDeviceId) {
-        // Wait briefly for device ID initialization
+      if (!currentUserId) {
+        // Wait briefly for user ID initialization
         let waitTime = 0;
         const maxWait = 3000;
         const checkInterval = 100;
 
-        while (!deviceIdRef.current && waitTime < maxWait) {
+        while (!userIdRef.current && waitTime < maxWait) {
           await new Promise(resolve => setTimeout(resolve, checkInterval));
           waitTime += checkInterval;
         }
 
-        if (!deviceIdRef.current) {
-          throw new Error('Device ID not initialized. Please try again.');
+        if (!userIdRef.current) {
+          throw new Error('User ID not initialized. Please sign in and try again.');
         }
+      }
+
+      const finalUserId = userIdRef.current || userId;
+      if (!finalUserId) {
+        throw new Error('User ID not available. Please sign in and try again.');
       }
 
       const finalDeviceId = deviceIdRef.current || deviceId;
       if (!finalDeviceId) {
-        throw new Error('Device ID not available');
+        throw new Error('Device ID not available. Please try again.');
       }
 
-      const uploadSvc = getUploadService({ deviceId: finalDeviceId, useRemote: true });
+      const uploadSvc = getUploadService({ useRemote: true });
       const mediaSvc = getMediaService({ useRemote: true });
       const uploadId = Crypto.randomUUID();
 
@@ -108,6 +113,8 @@ export function useUploadData(): UseUploadDataResult {
         mediaKey: mediaResult.key,
         coordinates: uploadData.coordinates,
         caption: uploadData.caption,
+        userId: finalUserId,
+        deviceId: finalDeviceId,
       });
 
       console.log('[useUploadData] Upload created successfully');
@@ -115,7 +122,7 @@ export function useUploadData(): UseUploadDataResult {
 
     // Invalidate cache so next refresh gets new data
     provider.invalidate();
-  }, [deviceId, deviceIdRef, provider]);
+  }, [userId, userIdRef, deviceId, deviceIdRef, provider]);
 
   // Vote handler - wraps useVoting
   const handleVote = useCallback(async (uploadId: string, voteType: VoteType) => {

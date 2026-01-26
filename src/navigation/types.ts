@@ -1,6 +1,7 @@
 export type RootStackParamList = {
   Map: undefined;
   Camera: undefined;
+  SignIn: undefined;
 };
 
 declare global {

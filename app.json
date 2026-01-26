@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.unum.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Unum needs camera access to capture photos and videos for sharing.",
         "NSMicrophoneUsageDescription": "Unum needs microphone access to record video with audio.",
@@ -48,6 +49,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-apple-authentication",
+      "expo-secure-store",
       [
         "expo-camera",
         {

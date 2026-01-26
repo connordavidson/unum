@@ -35,11 +35,12 @@ export interface CreateUploadParams {
   mediaKey?: string;           // S3 object key (for remote storage)
   coordinates: Coordinates;
   caption?: string;
+  userId: string;              // Apple user ID (authenticated user)
+  deviceId: string;            // Device identifier
 }
 
 export interface UploadServiceConfig {
   useRemote: boolean;
-  deviceId: string;
 }
 
 // ============ Service Implementation ============
@@ -87,7 +88,8 @@ export class UploadService {
       mediaKey: params.mediaKey,
       coordinates: params.coordinates,
       caption: params.caption,
-      deviceId: this.config.deviceId,
+      userId: params.userId,
+      deviceId: params.deviceId,
     };
 
     // Always create locally first
@@ -297,6 +299,7 @@ export class UploadService {
             mediaUrl: upload.mediaUrl,
             coordinates: upload.coordinates,
             caption: upload.caption,
+            userId: upload.userId,
             deviceId: upload.deviceId,
           });
         }
@@ -330,7 +333,6 @@ export function getUploadService(config?: Partial<UploadServiceConfig>): UploadS
   if (!serviceInstance) {
     serviceInstance = new UploadService({
       useRemote: config?.useRemote ?? FEATURE_FLAGS.USE_AWS_BACKEND,
-      deviceId: config?.deviceId ?? '',
     });
   }
   return serviceInstance;
