@@ -1,7 +1,7 @@
 export type Coordinates = [number, number]; // [latitude, longitude]
 
 export interface Upload {
-  id: number;
+  id: string;
   type: 'photo' | 'video';
   data: string;
   coordinates: Coordinates;
@@ -20,7 +20,7 @@ export interface CreateUploadData {
 export type VoteType = 'up' | 'down';
 
 export interface UserVotes {
-  [uploadId: number]: VoteType;
+  [uploadId: string]: VoteType;
 }
 
 export interface Cluster {

@@ -1,9 +1,11 @@
 /**
  * Format a timestamp into a human-readable relative time string
+ * Accepts either a Unix timestamp (number) or ISO date string
  */
-export function formatTimestamp(timestamp: number): string {
+export function formatTimestamp(timestamp: number | string): string {
   const now = Date.now();
-  const diff = now - timestamp;
+  const timestampMs = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
+  const diff = now - timestampMs;
 
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);

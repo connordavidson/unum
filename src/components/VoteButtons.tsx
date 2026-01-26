@@ -6,12 +6,12 @@ import { formatVoteCount } from '../shared/utils/formatting';
 import type { VoteType, Coordinates } from '../shared/types';
 
 interface VoteButtonsProps {
-  uploadId: number;
+  uploadId: string;
   votes: number;
   coordinates?: Coordinates;
   userVote?: VoteType;
-  onVote: (uploadId: number, voteType: VoteType) => void;
-  onDownload?: (uploadId: number) => void;
+  onVote: (uploadId: string, voteType: VoteType) => void;
+  onDownload?: (uploadId: string) => void;
   size?: 'small' | 'large';
 }
 

@@ -18,11 +18,11 @@ import type {
 } from '../interfaces/upload.repository';
 
 /**
- * Convert legacy Upload to BFFUpload format
+ * Convert BFFUpload to legacy Upload format
  */
 function toLegacyUpload(bffUpload: BFFUpload): Upload {
   return {
-    id: parseInt(bffUpload.id, 10) || Date.now(),
+    id: bffUpload.id,
     type: bffUpload.type,
     data: bffUpload.mediaUrl,
     coordinates: bffUpload.coordinates,
@@ -33,11 +33,11 @@ function toLegacyUpload(bffUpload: BFFUpload): Upload {
 }
 
 /**
- * Convert BFFUpload to legacy Upload format
+ * Convert Upload to BFFUpload format
  */
 function toBFFUpload(upload: Upload, deviceId: string): BFFUpload {
   return {
-    id: String(upload.id),
+    id: upload.id,
     type: upload.type,
     mediaUrl: upload.data,
     coordinates: upload.coordinates,
@@ -120,7 +120,7 @@ export class LocalUploadRepository implements IUploadRepository {
 
     // Create new upload in legacy format
     const newUpload: Upload = {
-      id: Date.now(),
+      id: Crypto.randomUUID(),
       type: input.type,
       data: input.mediaUrl,
       coordinates: input.coordinates,
@@ -141,9 +141,8 @@ export class LocalUploadRepository implements IUploadRepository {
   async getById(id: string): Promise<BFFUpload | null> {
     const uploads = await this.loadUploads();
     const deviceId = await this.getDeviceId();
-    const numericId = parseInt(id, 10);
 
-    const upload = uploads.find((u) => u.id === numericId);
+    const upload = uploads.find((u) => u.id === id);
     return upload ? toBFFUpload(upload, deviceId) : null;
   }
 
@@ -203,9 +202,8 @@ export class LocalUploadRepository implements IUploadRepository {
   async update(id: string, updates: Partial<BFFUpload>): Promise<BFFUpload> {
     const uploads = await this.loadUploads();
     const deviceId = await this.getDeviceId();
-    const numericId = parseInt(id, 10);
 
-    const index = uploads.findIndex((u) => u.id === numericId);
+    const index = uploads.findIndex((u) => u.id === id);
     if (index === -1) {
       throw new Error(`Upload not found: ${id}`);
     }
@@ -227,9 +225,8 @@ export class LocalUploadRepository implements IUploadRepository {
 
   async updateVoteCount(id: string, delta: number): Promise<number> {
     const uploads = await this.loadUploads();
-    const numericId = parseInt(id, 10);
 
-    const index = uploads.findIndex((u) => u.id === numericId);
+    const index = uploads.findIndex((u) => u.id === id);
     if (index === -1) {
       throw new Error(`Upload not found: ${id}`);
     }
@@ -254,9 +251,8 @@ export class LocalUploadRepository implements IUploadRepository {
 
   async delete(id: string): Promise<void> {
     const uploads = await this.loadUploads();
-    const numericId = parseInt(id, 10);
 
-    const filtered = uploads.filter((u) => u.id !== numericId);
+    const filtered = uploads.filter((u) => u.id !== id);
     await this.saveUploads(filtered);
   }
 

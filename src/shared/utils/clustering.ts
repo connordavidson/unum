@@ -62,7 +62,7 @@ export function calculateRadius(uploads: Upload[], center: Coordinates): number 
  * Group uploads into clusters based on proximity
  */
 export function clusterUploads(uploads: Upload[]): ClusterResult {
-  const visited = new Set<number>();
+  const visited = new Set<string>();
   const largeClusters: Cluster[] = [];
   const smallClusters: Cluster[] = [];
   const unclustered: Upload[] = [];

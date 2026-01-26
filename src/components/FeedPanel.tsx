@@ -21,8 +21,8 @@ const PULL_THRESHOLD = 80; // How far to pull before triggering refresh
 interface FeedPanelProps {
   uploads: Upload[];
   userVotes: UserVotes;
-  onVote: (uploadId: number, voteType: VoteType) => void;
-  onVisibleItemsChange?: (visibleIds: number[]) => void;
+  onVote: (uploadId: string, voteType: VoteType) => void;
+  onVisibleItemsChange?: (visibleIds: string[]) => void;
   bottomSheetRef: React.RefObject<BottomSheet>;
   onRefresh?: () => Promise<void>;
   isRefreshing?: boolean;
@@ -38,7 +38,7 @@ export function FeedPanel({
   isRefreshing = false,
 }: FeedPanelProps) {
   const insets = useSafeAreaInsets();
-  const visibleItemsRef = useRef<Set<number>>(new Set());
+  const visibleItemsRef = useRef<Set<string>>(new Set());
   const [isSheetExpanded, setIsSheetExpanded] = useState(false);
 
   // Pull-to-refresh state

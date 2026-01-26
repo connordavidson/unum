@@ -116,12 +116,12 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {
-    const map = new Map<number, typeof uploads[0]>();
+    const map = new Map<string, typeof uploads[0]>();
     uploads.forEach((upload) => map.set(upload.id, upload));
     return map;
   }, [uploads]);
 
-  const handleDownload = useCallback((uploadId: number) => {
+  const handleDownload = useCallback((uploadId: string) => {
     const upload = uploadsById.get(uploadId);
     if (upload) {
       downloadMedia(upload);
@@ -129,9 +129,9 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, [uploadsById, downloadMedia]);
 
   // Track which items are visible in the feed
-  const [visibleFeedIds, setVisibleFeedIds] = useState<Set<number>>(new Set());
+  const [visibleFeedIds, setVisibleFeedIds] = useState<Set<string>>(new Set());
 
-  const handleVisibleItemsChange = useCallback((visibleIds: number[]) => {
+  const handleVisibleItemsChange = useCallback((visibleIds: string[]) => {
     setVisibleFeedIds(new Set(visibleIds));
   }, []);
 

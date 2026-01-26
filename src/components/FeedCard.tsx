@@ -10,7 +10,7 @@ import type { Upload, VoteType } from '../shared/types';
 interface FeedCardProps {
   upload: Upload;
   userVote?: VoteType;
-  onVote: (uploadId: number, voteType: VoteType) => void;
+  onVote: (uploadId: string, voteType: VoteType) => void;
   isVisible?: boolean;
 }
 
@@ -23,7 +23,7 @@ export function FeedCard({
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const { downloadMedia } = useDownload();
 
-  const handleDownload = useCallback((_uploadId: number) => {
+  const handleDownload = useCallback((_uploadId: string) => {
     downloadMedia(upload);
   }, [downloadMedia, upload]);
 

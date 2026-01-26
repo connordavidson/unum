@@ -7,6 +7,7 @@
 
 import * as Crypto from 'expo-crypto';
 import { getStoredJSON, setStoredJSON } from '../../shared/utils/storage';
+import { createVoteId, calculateVoteDelta } from '../../shared/utils/votes';
 import { STORAGE_KEYS, BFF_STORAGE_KEYS } from '../../shared/constants';
 import type { VoteType, UserVotes } from '../../shared/types';
 import type {
@@ -14,13 +15,6 @@ import type {
   BFFVote,
   UpsertVoteInput,
 } from '../interfaces/vote.repository';
-
-/**
- * Create a vote ID from upload and device IDs
- */
-function createVoteId(uploadId: string, deviceId: string): string {
-  return `${uploadId}#${deviceId}`;
-}
 
 /**
  * Local Vote Repository Implementation
@@ -223,27 +217,13 @@ export class LocalVoteRepository implements IVoteRepository {
 
   /**
    * Calculate vote delta for an upload based on vote change
+   * (delegates to shared utility function)
    */
   calculateVoteDelta(
     previousVoteType: VoteType | null,
     newVoteType: VoteType | null
   ): number {
-    if (previousVoteType === newVoteType) {
-      return 0; // No change
-    }
-
-    if (previousVoteType === null) {
-      // New vote
-      return newVoteType === 'up' ? 1 : -1;
-    }
-
-    if (newVoteType === null) {
-      // Removed vote
-      return previousVoteType === 'up' ? -1 : 1;
-    }
-
-    // Changed vote (up to down or down to up)
-    return newVoteType === 'up' ? 2 : -2;
+    return calculateVoteDelta(previousVoteType, newVoteType);
   }
 }
 

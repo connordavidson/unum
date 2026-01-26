@@ -3,7 +3,7 @@ import type { Upload } from "../shared/types";
 // Test data around Pentagon City / Crystal City area (default map center)
 export const TEST_UPLOADS: Upload[] = [
   {
-    id: 1,
+    id: "1",
     type: "photo",
     data: "https://picsum.photos/seed/street1/400/300",
     coordinates: [35.2271, -80.8431],
@@ -12,7 +12,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Morning commute on Trade Street",
   },
   {
-    id: 2,
+    id: "2",
     type: "photo",
     data: "https://picsum.photos/seed/building1/400/300",
     coordinates: [35.2295, -80.839],
@@ -21,7 +21,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Construction site near the square",
   },
   {
-    id: 3,
+    id: "3",
     type: "video",
     data: "https://www.w3schools.com/html/mov_bbb.mp4",
     coordinates: [35.224, -80.8465],
@@ -30,7 +30,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Traffic backup on 277",
   },
   {
-    id: 4,
+    id: "4",
     type: "photo",
     data: "https://picsum.photos/seed/corner1/400/300",
     coordinates: [35.231, -80.851],
@@ -39,7 +39,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Corner of 4th and Tryon",
   },
   {
-    id: 5,
+    id: "5",
     type: "photo",
     data: "https://picsum.photos/seed/alley1/400/300",
     coordinates: [35.2205, -80.8355],
@@ -48,7 +48,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Suspicious activity behind the bank",
   },
   {
-    id: 6,
+    id: "6",
     type: "photo",
     data: "https://picsum.photos/seed/fence1/400/300",
     coordinates: [35.2185, -80.849],
@@ -57,7 +57,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Broken fence near transit station",
   },
   {
-    id: 7,
+    id: "7",
     type: "video",
     data: "https://www.w3schools.com/html/movie.mp4",
     coordinates: [35.233, -80.838],
@@ -66,7 +66,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Street performer on College St",
   },
   {
-    id: 8,
+    id: "8",
     type: "photo",
     data: "https://picsum.photos/seed/road1/400/300",
     coordinates: [35.226, -80.855],
@@ -75,7 +75,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Pothole damage on West Trade",
   },
   {
-    id: 9,
+    id: "9",
     type: "photo",
     data: "https://picsum.photos/seed/house1/400/300",
     coordinates: [35.2355, -80.8445],
@@ -84,7 +84,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Historic Fourth Ward home",
   },
   {
-    id: 10,
+    id: "10",
     type: "photo",
     data: "https://picsum.photos/seed/store1/400/300",
     coordinates: [35.215, -80.841],
@@ -94,7 +94,7 @@ export const TEST_UPLOADS: Upload[] = [
   },
 
   {
-    id: 101,
+    id: "101",
     type: "photo",
     data: "https://picsum.photos/seed/matthews1/400/300",
     coordinates: [35.1168, -80.7237],
@@ -103,7 +103,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Matthews downtown square",
   },
   {
-    id: 102,
+    id: "102",
     type: "video",
     data: "https://www.w3schools.com/html/mov_bbb.mp4",
     coordinates: [35.1185, -80.7195],
@@ -112,7 +112,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Farmers market setup",
   },
   {
-    id: 103,
+    id: "103",
     type: "photo",
     data: "https://picsum.photos/seed/matthews3/400/300",
     coordinates: [35.1142, -80.728],
@@ -121,7 +121,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Abandoned shopping cart",
   },
   {
-    id: 104,
+    id: "104",
     type: "photo",
     data: "https://picsum.photos/seed/matthews4/400/300",
     coordinates: [35.1198, -80.7152],
@@ -130,7 +130,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "School zone speeding",
   },
   {
-    id: 105,
+    id: "105",
     type: "photo",
     data: "https://picsum.photos/seed/matthews5/400/300",
     coordinates: [35.1125, -80.731],
@@ -139,7 +139,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Community park cleanup",
   },
   {
-    id: 106,
+    id: "106",
     type: "photo",
     data: "https://picsum.photos/seed/matthews6/400/300",
     coordinates: [35.121, -80.7265],
@@ -148,7 +148,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Parking lot fender bender",
   },
   {
-    id: 107,
+    id: "107",
     type: "photo",
     data: "https://picsum.photos/seed/matthews7/400/300",
     coordinates: [35.1155, -80.718],
@@ -157,7 +157,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Independence Blvd traffic",
   },
   {
-    id: 108,
+    id: "108",
     type: "photo",
     data: "https://picsum.photos/seed/matthews8/400/300",
     coordinates: [35.1178, -80.732],
@@ -166,7 +166,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "New sidewalk construction",
   },
   {
-    id: 109,
+    id: "109",
     type: "photo",
     data: "https://picsum.photos/seed/matthews9/400/300",
     coordinates: [35.1132, -80.7205],
@@ -175,7 +175,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Stray dog spotted",
   },
   {
-    id: 110,
+    id: "110",
     type: "photo",
     data: "https://picsum.photos/seed/matthews10/400/300",
     coordinates: [35.1195, -80.7245],
@@ -184,7 +184,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Overflowing dumpster",
   },
   {
-    id: 111,
+    id: "111",
     type: "photo",
     data: "https://picsum.photos/seed/matthews11/400/300",
     coordinates: [35.1148, -80.7168],
@@ -193,7 +193,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Local food truck rally",
   },
   {
-    id: 112,
+    id: "112",
     type: "photo",
     data: "https://picsum.photos/seed/matthews12/400/300",
     coordinates: [35.122, -80.729],
@@ -203,7 +203,7 @@ export const TEST_UPLOADS: Upload[] = [
   },
 
   {
-    id: 201,
+    id: "201",
     type: "photo",
     data: "https://picsum.photos/seed/southpark1/400/300",
     coordinates: [35.1534, -80.827],
@@ -212,7 +212,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "SouthPark Mall entrance",
   },
   {
-    id: 202,
+    id: "202",
     type: "photo",
     data: "https://picsum.photos/seed/southpark2/400/300",
     coordinates: [35.1555, -80.8235],
@@ -221,7 +221,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Luxury car meetup",
   },
   {
-    id: 203,
+    id: "203",
     type: "photo",
     data: "https://picsum.photos/seed/southpark3/400/300",
     coordinates: [35.151, -80.8305],
@@ -230,7 +230,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Construction blocking Sharon Rd",
   },
   {
-    id: 204,
+    id: "204",
     type: "video",
     data: "https://www.w3schools.com/html/movie.mp4",
     coordinates: [35.1572, -80.8252],
@@ -239,7 +239,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Fire truck responding",
   },
   {
-    id: 205,
+    id: "205",
     type: "photo",
     data: "https://picsum.photos/seed/southpark5/400/300",
     coordinates: [35.1498, -80.8288],
@@ -248,7 +248,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Crowded parking garage",
   },
   {
-    id: 206,
+    id: "206",
     type: "photo",
     data: "https://picsum.photos/seed/southpark6/400/300",
     coordinates: [35.1545, -80.8198],
@@ -257,7 +257,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Wrong-way driver on Fairview",
   },
   {
-    id: 207,
+    id: "207",
     type: "photo",
     data: "https://picsum.photos/seed/southpark7/400/300",
     coordinates: [35.152, -80.832],
@@ -266,7 +266,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Celebrity sighting at Nordstrom",
   },
   {
-    id: 208,
+    id: "208",
     type: "photo",
     data: "https://picsum.photos/seed/southpark8/400/300",
     coordinates: [35.1565, -80.8215],
@@ -275,7 +275,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Valet parking chaos",
   },
   {
-    id: 209,
+    id: "209",
     type: "photo",
     data: "https://picsum.photos/seed/southpark9/400/300",
     coordinates: [35.1488, -80.8265],
@@ -285,7 +285,7 @@ export const TEST_UPLOADS: Upload[] = [
   },
 
   {
-    id: 301,
+    id: "301",
     type: "photo",
     data: "https://picsum.photos/seed/uncc1/400/300",
     coordinates: [35.3073, -80.7537],
@@ -294,7 +294,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Niner Nation game day",
   },
   {
-    id: 302,
+    id: "302",
     type: "photo",
     data: "https://picsum.photos/seed/uncc2/400/300",
     coordinates: [35.3095, -80.7495],
@@ -303,7 +303,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Campus library crowd",
   },
   {
-    id: 303,
+    id: "303",
     type: "photo",
     data: "https://picsum.photos/seed/uncc3/400/300",
     coordinates: [35.3048, -80.758],
@@ -312,7 +312,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Parking deck full again",
   },
   {
-    id: 304,
+    id: "304",
     type: "photo",
     data: "https://picsum.photos/seed/uncc4/400/300",
     coordinates: [35.3115, -80.7512],
@@ -321,7 +321,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Light rail station packed",
   },
   {
-    id: 305,
+    id: "305",
     type: "video",
     data: "https://www.w3schools.com/html/mov_bbb.mp4",
     coordinates: [35.3028, -80.7555],
@@ -330,7 +330,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Student protest on campus",
   },
   {
-    id: 306,
+    id: "306",
     type: "photo",
     data: "https://picsum.photos/seed/uncc6/400/300",
     coordinates: [35.3088, -80.7468],
@@ -339,7 +339,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Dorm fire alarm - false",
   },
   {
-    id: 307,
+    id: "307",
     type: "photo",
     data: "https://picsum.photos/seed/uncc7/400/300",
     coordinates: [35.306, -80.7598],
@@ -348,7 +348,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Food truck Friday lineup",
   },
   {
-    id: 308,
+    id: "308",
     type: "photo",
     data: "https://picsum.photos/seed/uncc8/400/300",
     coordinates: [35.3102, -80.7525],
@@ -357,7 +357,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Construction on University City Blvd",
   },
   {
-    id: 309,
+    id: "309",
     type: "photo",
     data: "https://picsum.photos/seed/uncc9/400/300",
     coordinates: [35.3038, -80.7488],
@@ -366,7 +366,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Move-in day traffic",
   },
   {
-    id: 310,
+    id: "310",
     type: "photo",
     data: "https://picsum.photos/seed/uncc10/400/300",
     coordinates: [35.3078, -80.7562],
@@ -375,7 +375,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Raccoon invasion near EPIC",
   },
   {
-    id: 311,
+    id: "311",
     type: "photo",
     data: "https://picsum.photos/seed/uncc11/400/300",
     coordinates: [35.3125, -80.7545],
@@ -384,7 +384,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Greek row party cleanup",
   },
   {
-    id: 312,
+    id: "312",
     type: "photo",
     data: "https://picsum.photos/seed/uncc12/400/300",
     coordinates: [35.3055, -80.7505],
@@ -393,7 +393,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Bike lane blocked by delivery",
   },
   {
-    id: 313,
+    id: "313",
     type: "photo",
     data: "https://picsum.photos/seed/uncc13/400/300",
     coordinates: [35.3018, -80.7572],
@@ -402,7 +402,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Research campus expansion",
   },
   {
-    id: 314,
+    id: "314",
     type: "photo",
     data: "https://picsum.photos/seed/uncc14/400/300",
     coordinates: [35.311, -80.7482],
@@ -412,7 +412,7 @@ export const TEST_UPLOADS: Upload[] = [
   },
 
   {
-    id: 401,
+    id: "401",
     type: "photo",
     data: "https://picsum.photos/seed/reedy1/400/300",
     coordinates: [35.195, -80.915],
@@ -421,7 +421,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Trail entrance crowded",
   },
   {
-    id: 402,
+    id: "402",
     type: "photo",
     data: "https://picsum.photos/seed/reedy2/400/300",
     coordinates: [35.1975, -80.9115],
@@ -430,7 +430,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Morning joggers on path",
   },
   {
-    id: 403,
+    id: "403",
     type: "photo",
     data: "https://picsum.photos/seed/reedy3/400/300",
     coordinates: [35.1928, -80.9185],
@@ -439,7 +439,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Graffiti on park bench",
   },
   {
-    id: 404,
+    id: "404",
     type: "photo",
     data: "https://picsum.photos/seed/reedy4/400/300",
     coordinates: [35.199, -80.9132],
@@ -448,7 +448,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Nature center event",
   },
   {
-    id: 405,
+    id: "405",
     type: "photo",
     data: "https://picsum.photos/seed/reedy5/400/300",
     coordinates: [35.1912, -80.9168],
@@ -457,7 +457,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Deer spotted near creek",
   },
   {
-    id: 406,
+    id: "406",
     type: "photo",
     data: "https://picsum.photos/seed/reedy6/400/300",
     coordinates: [35.1965, -80.9098],
@@ -466,7 +466,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Trash left on trail",
   },
   {
-    id: 407,
+    id: "407",
     type: "video",
     data: "https://www.w3schools.com/html/movie.mp4",
     coordinates: [35.1938, -80.9195],
@@ -475,7 +475,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Kayakers on the water",
   },
   {
-    id: 408,
+    id: "408",
     type: "photo",
     data: "https://picsum.photos/seed/reedy8/400/300",
     coordinates: [35.1982, -80.9142],
@@ -484,7 +484,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Bridge under repair",
   },
   {
-    id: 409,
+    id: "409",
     type: "photo",
     data: "https://picsum.photos/seed/reedy9/400/300",
     coordinates: [35.192, -80.9125],
@@ -493,7 +493,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Eagle nest sighting",
   },
   {
-    id: 410,
+    id: "410",
     type: "photo",
     data: "https://picsum.photos/seed/reedy10/400/300",
     coordinates: [35.1945, -80.9108],
@@ -502,7 +502,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Flooded section of trail",
   },
   {
-    id: 411,
+    id: "411",
     type: "photo",
     data: "https://picsum.photos/seed/reedy11/400/300",
     coordinates: [35.1958, -80.9175],
@@ -511,7 +511,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Sunset at the lake",
   },
   {
-    id: 501,
+    id: "501",
     type: "photo",
     data: "https://picsum.photos/seed/pineville1/400/300",
     coordinates: [35.0831, -80.8923],
@@ -520,7 +520,7 @@ export const TEST_UPLOADS: Upload[] = [
     caption: "Carolina Place Mall parking",
   },
   {
-    id: 502,
+    id: "502",
     type: "photo",
     data: "https://picsum.photos/seed/pineville2/400/300",
     coordinates: [35.0858, -80.8856],
