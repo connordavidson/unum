@@ -6,8 +6,9 @@
 
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as SecureStore from 'expo-secure-store';
-import { AUTH_STORAGE_KEYS } from '../shared/constants';
+import { AUTH_STORAGE_KEYS, FEATURE_FLAGS } from '../shared/constants';
 import { getStoredJSON, setStoredJSON } from '../shared/utils';
+import { upsertUser } from '../api/clients/dynamodb.client';
 import type { AuthUser, StoredAuthData } from '../shared/types/auth';
 
 // ============ Types ============
@@ -120,16 +121,38 @@ export async function signInWithApple(): Promise<SignInResult> {
 
     console.log('[AuthService] Parsed displayName:', displayName);
 
-    // Store credentials
+    // Store credentials locally
     await storeAppleUserId(credential.user);
 
-    // Store profile (only if we got new data, otherwise keep existing)
+    // Store profile locally (only if we got new data, otherwise keep existing)
     const existingProfile = await getStoredUserProfile();
     const newProfile = {
       email: credential.email || existingProfile?.email || null,
       displayName: displayName || existingProfile?.displayName || null,
+      givenName: credential.fullName?.givenName || existingProfile?.givenName || null,
+      familyName: credential.fullName?.familyName || existingProfile?.familyName || null,
     };
     await storeUserProfile(newProfile);
+
+    // Store user in DynamoDB (if AWS backend is enabled)
+    if (FEATURE_FLAGS.USE_AWS_BACKEND) {
+      try {
+        console.log('[AuthService] Storing user in DynamoDB...');
+        await upsertUser(credential.user, {
+          id: credential.user,
+          email: newProfile.email,
+          givenName: newProfile.givenName,
+          familyName: newProfile.familyName,
+          displayName: newProfile.displayName,
+          authProvider: 'apple',
+          lastSignInAt: new Date().toISOString(),
+        });
+        console.log('[AuthService] User stored in DynamoDB successfully');
+      } catch (dbError) {
+        // Don't fail sign-in if DynamoDB storage fails
+        console.error('[AuthService] Failed to store user in DynamoDB:', dbError);
+      }
+    }
 
     const user: AuthUser = {
       id: credential.user,

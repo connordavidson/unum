@@ -90,6 +90,20 @@ export interface DynamoVoteItem {
   timestamp: string;
 }
 
+export interface DynamoUserItem {
+  PK: string;                    // "USER#<appleUserId>"
+  SK: string;                    // "PROFILE"
+  id: string;                    // Apple user ID
+  email: string | null;          // May be null or relay address
+  givenName: string | null;      // First name
+  familyName: string | null;     // Last name
+  displayName: string | null;    // Full display name
+  authProvider: 'apple';
+  createdAt: string;
+  updatedAt: string;
+  lastSignInAt: string;
+}
+
 export interface DynamoQueryOptions {
   tableName: string;
   indexName?: string;

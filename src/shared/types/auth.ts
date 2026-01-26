@@ -35,5 +35,7 @@ export interface StoredAuthData {
   profile: {
     email: string | null;
     displayName: string | null;
+    givenName: string | null;
+    familyName: string | null;
   };
 }

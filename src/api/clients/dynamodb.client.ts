@@ -24,6 +24,7 @@ import { withRetry } from './retry';
 import type {
   DynamoUploadItem,
   DynamoVoteItem,
+  DynamoUserItem,
   DynamoQueryOptions,
 } from '../types';
 
@@ -64,6 +65,14 @@ export function createGeohashGSI1PK(geohash: string): string {
 
 export function createDeviceGSI1PK(deviceId: string): string {
   return `DEVICE#${deviceId}`;
+}
+
+export function createUserPK(userId: string): string {
+  return `USER#${userId}`;
+}
+
+export function createUserSK(): string {
+  return 'PROFILE';
 }
 
 // ============ Upload Operations ============
@@ -410,6 +419,140 @@ export async function getVotesByDevice(
 
     return (result.Items as DynamoVoteItem[]) || [];
   });
+}
+
+// ============ User Operations ============
+
+/**
+ * Create a new user record
+ */
+export async function createUser(item: DynamoUserItem): Promise<void> {
+  await withRetry(async () => {
+    await docClient.send(
+      new PutCommand({
+        TableName: dynamoConfig.tableName,
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(PK)',
+      })
+    );
+  });
+}
+
+/**
+ * Get a user by ID
+ */
+export async function getUserById(
+  userId: string
+): Promise<DynamoUserItem | null> {
+  return withRetry(async () => {
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUserPK(userId),
+          SK: createUserSK(),
+        },
+      })
+    );
+
+    return (result.Item as DynamoUserItem) || null;
+  });
+}
+
+/**
+ * Update a user's profile
+ */
+export async function updateUser(
+  userId: string,
+  updates: Partial<Omit<DynamoUserItem, 'PK' | 'SK' | 'id'>>
+): Promise<DynamoUserItem> {
+  return withRetry(async () => {
+    const expressionParts: string[] = [];
+    const expressionNames: Record<string, string> = {};
+    const expressionValues: Record<string, unknown> = {};
+
+    Object.entries(updates).forEach(([key, value], index) => {
+      if (value !== undefined) {
+        const nameKey = `#attr${index}`;
+        const valueKey = `:val${index}`;
+        expressionParts.push(`${nameKey} = ${valueKey}`);
+        expressionNames[nameKey] = key;
+        expressionValues[valueKey] = value;
+      }
+    });
+
+    if (expressionParts.length === 0) {
+      const existing = await getUserById(userId);
+      if (!existing) {
+        throw new Error(`User not found: ${userId}`);
+      }
+      return existing;
+    }
+
+    // Always update updatedAt
+    expressionParts.push('#updatedAt = :updatedAt');
+    expressionNames['#updatedAt'] = 'updatedAt';
+    expressionValues[':updatedAt'] = new Date().toISOString();
+
+    const result = await docClient.send(
+      new UpdateCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUserPK(userId),
+          SK: createUserSK(),
+        },
+        UpdateExpression: `SET ${expressionParts.join(', ')}`,
+        ExpressionAttributeNames: expressionNames,
+        ExpressionAttributeValues: expressionValues,
+        ReturnValues: 'ALL_NEW',
+      })
+    );
+
+    return result.Attributes as DynamoUserItem;
+  });
+}
+
+/**
+ * Create or update user (upsert) - useful for sign-in
+ */
+export async function upsertUser(
+  userId: string,
+  data: Omit<DynamoUserItem, 'PK' | 'SK' | 'createdAt' | 'updatedAt'>
+): Promise<DynamoUserItem> {
+  const now = new Date().toISOString();
+
+  // Check if user exists
+  const existing = await getUserById(userId);
+
+  if (existing) {
+    // Update existing user - only update fields that have new values
+    // and always update lastSignInAt
+    return updateUser(userId, {
+      ...(data.email && { email: data.email }),
+      ...(data.givenName && { givenName: data.givenName }),
+      ...(data.familyName && { familyName: data.familyName }),
+      ...(data.displayName && { displayName: data.displayName }),
+      lastSignInAt: now,
+    });
+  } else {
+    // Create new user
+    const newUser: DynamoUserItem = {
+      PK: createUserPK(userId),
+      SK: createUserSK(),
+      id: data.id,
+      email: data.email,
+      givenName: data.givenName,
+      familyName: data.familyName,
+      displayName: data.displayName,
+      authProvider: data.authProvider,
+      createdAt: now,
+      updatedAt: now,
+      lastSignInAt: now,
+    };
+
+    await createUser(newUser);
+    return newUser;
+  }
 }
 
 // ============ Batch Operations ============
