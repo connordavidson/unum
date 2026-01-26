@@ -1,10 +1,22 @@
-import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ViewToken } from 'react-native';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ViewToken,
+  Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  ActivityIndicator,
+} from 'react-native';
 import BottomSheet, { BottomSheetFlatList, BottomSheetHandleProps } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { COLORS, SHEET_SNAP_POINTS } from '../shared/constants';
 import { FeedCard } from './FeedCard';
 import type { Upload, VoteType, UserVotes } from '../shared/types';
+
+const PULL_THRESHOLD = 80; // How far to pull before triggering refresh
 
 interface FeedPanelProps {
   uploads: Upload[];
@@ -12,6 +24,8 @@ interface FeedPanelProps {
   onVote: (uploadId: number, voteType: VoteType) => void;
   onVisibleItemsChange?: (visibleIds: number[]) => void;
   bottomSheetRef: React.RefObject<BottomSheet>;
+  onRefresh?: () => Promise<void>;
+  isRefreshing?: boolean;
 }
 
 export function FeedPanel({
@@ -20,10 +34,16 @@ export function FeedPanel({
   onVote,
   onVisibleItemsChange,
   bottomSheetRef,
+  onRefresh,
+  isRefreshing = false,
 }: FeedPanelProps) {
   const insets = useSafeAreaInsets();
   const visibleItemsRef = useRef<Set<number>>(new Set());
   const [isSheetExpanded, setIsSheetExpanded] = useState(false);
+
+  // Pull-to-refresh state
+  const [pullDistance, setPullDistance] = useState(0);
+  const thresholdReachedRef = useRef(false);
 
   const snapPoints = [
     SHEET_SNAP_POINTS.MINIMIZED,
@@ -42,6 +62,50 @@ export function FeedPanel({
       bottomSheetRef.current?.snapToIndex(0);
     }
   }, [uploads.length, bottomSheetRef]);
+
+  // Handle scroll to track pull distance
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetY = event.nativeEvent.contentOffset.y;
+
+      // Negative offset means pulling down past the top
+      if (offsetY < 0) {
+        const distance = Math.abs(offsetY);
+        setPullDistance(distance);
+
+        // Fire haptic when threshold is first reached
+        if (distance >= PULL_THRESHOLD && !thresholdReachedRef.current && !isRefreshing) {
+          thresholdReachedRef.current = true;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        } else if (distance < PULL_THRESHOLD) {
+          thresholdReachedRef.current = false;
+        }
+      } else {
+        setPullDistance(0);
+        thresholdReachedRef.current = false;
+      }
+    },
+    [isRefreshing]
+  );
+
+  // Handle scroll end (user releases)
+  const handleScrollEndDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetY = event.nativeEvent.contentOffset.y;
+
+      if (offsetY < 0 && Math.abs(offsetY) >= PULL_THRESHOLD && !isRefreshing && onRefresh) {
+        // Fire haptic on release
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        // Trigger refresh
+        onRefresh();
+      }
+
+      // Reset
+      setPullDistance(0);
+      thresholdReachedRef.current = false;
+    },
+    [isRefreshing, onRefresh]
+  );
 
   // Custom handle component that includes the header
   const renderHandle = useCallback(
@@ -90,6 +154,30 @@ export function FeedPanel({
     []
   );
 
+  // Pull-to-refresh header component
+  const pullProgress = Math.min(pullDistance / PULL_THRESHOLD, 1);
+  const showPullIndicator = pullDistance > 0 || isRefreshing;
+
+  const ListHeaderComponent = useCallback(
+    () => {
+      if (!showPullIndicator) return null;
+
+      return (
+        <View style={[styles.pullIndicator, { height: isRefreshing ? 50 : pullDistance }]}>
+          <Animated.View
+            style={{
+              opacity: pullProgress,
+              transform: [{ scale: 0.5 + pullProgress * 0.5 }],
+            }}
+          >
+            <ActivityIndicator size="small" color={COLORS.PRIMARY} />
+          </Animated.View>
+        </View>
+      );
+    },
+    [showPullIndicator, pullDistance, pullProgress]
+  );
+
   return (
     <BottomSheet
       ref={bottomSheetRef}
@@ -109,12 +197,17 @@ export function FeedPanel({
         keyExtractor={keyExtractor}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={ListEmptyComponent}
+        ListHeaderComponent={ListHeaderComponent}
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={{
           itemVisiblePercentThreshold: 80,
         }}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled={true}
+        onScroll={handleScroll}
+        onScrollEndDrag={handleScrollEndDrag}
+        scrollEventThrottle={16}
+        bounces={true}
       />
     </BottomSheet>
   );
@@ -168,5 +261,10 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: COLORS.TEXT_SECONDARY,
+  },
+  pullIndicator: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
 });

@@ -24,15 +24,23 @@ export function MediaDisplay({
 }: MediaDisplayProps) {
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
 
   // Video player (only used for video type)
   const videoPlayer = useVideoPlayer(
     upload.type === 'video' ? upload.data : '',
     (player) => {
       player.loop = true;
-      player.muted = false;
+      player.muted = true;
     }
   );
+
+  // Sync muted state with player
+  useEffect(() => {
+    if (videoPlayer) {
+      videoPlayer.muted = isMuted;
+    }
+  }, [isMuted, videoPlayer]);
 
   // Handle autoPlay and track playing state
   useEffect(() => {
@@ -61,6 +69,10 @@ export function MediaDisplay({
       videoPlayer.play();
       setIsPlaying(true);
     }
+  };
+
+  const toggleMute = () => {
+    setIsMuted((prev) => !prev);
   };
 
   if (upload.type === 'photo') {
@@ -108,6 +120,17 @@ export function MediaDisplay({
           </View>
         </View>
       )}
+
+      {/* Mute/Unmute button */}
+      {!isLoading && (
+        <TouchableOpacity style={styles.muteButton} onPress={toggleMute}>
+          <Ionicons
+            name={isMuted ? 'volume-mute' : 'volume-high'}
+            size={20}
+            color={COLORS.BACKGROUND}
+          />
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 }
@@ -143,5 +166,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingLeft: 4,
+  },
+  muteButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.OVERLAY,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

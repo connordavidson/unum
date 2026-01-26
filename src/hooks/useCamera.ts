@@ -57,6 +57,10 @@ export function useCamera(): UseCameraResult {
   const cameraRef = useRef<CameraView>(null);
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isHoldingRef = useRef(false);
+  const isRecordingRef = useRef(false);
+
+  // Keep ref in sync with state for use in callbacks
+  isRecordingRef.current = isRecording;
 
   const onCameraReady = useCallback(() => {
     setIsCameraReady(true);
@@ -83,10 +87,7 @@ export function useCamera(): UseCameraResult {
     if (isRecording) return;
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
     setIsCameraReady(false);
-    // Fallback: expo-camera may not always fire onCameraReady after facing change
-    setTimeout(() => {
-      setIsCameraReady(true);
-    }, 500);
+    // onCameraReady will be called when the new CameraView mounts (via key={facing})
   }, [isRecording]);
 
   const takePhoto = useCallback(async () => {
@@ -164,12 +165,13 @@ export function useCamera(): UseCameraResult {
       holdTimerRef.current = null;
     }
 
-    if (isRecording) {
+    // Use ref to get current recording state (avoids stale closure)
+    if (isRecordingRef.current) {
       stopRecording();
     } else if (wasHolding) {
       takePhoto();
     }
-  }, [isRecording, stopRecording, takePhoto]);
+  }, [stopRecording, takePhoto]);
 
   return {
     permission,

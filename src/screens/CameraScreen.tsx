@@ -87,10 +87,21 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
   // Pan gesture for capture button: handles tap, hold-to-record, and slide-to-zoom
   const captureGesture = Gesture.Pan()
-    .onBegin(() => {
+    .minDistance(0)
+    .onTouchesDown(() => {
       'worklet';
       gestureActive.value = true;
       runOnJS(onGestureStart)();
+    })
+    .onTouchesUp(() => {
+      'worklet';
+      // Always fire when finger is lifted
+      if (gestureActive.value) {
+        gestureActive.value = false;
+        hasSetBaseline.value = false;
+        baselineY.value = 0;
+        runOnJS(onGestureEnd)();
+      }
     })
     .onUpdate((event) => {
       'worklet';
@@ -106,24 +117,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
         // Scale: ~400px of movement = full zoom range
         const newZoom = Math.max(0, Math.min(1, delta / 400));
         runOnJS(updateZoom)(newZoom);
-      }
-    })
-    .onEnd(() => {
-      'worklet';
-      if (gestureActive.value) {
-        gestureActive.value = false;
-        hasSetBaseline.value = false;
-        baselineY.value = 0;
-        runOnJS(onGestureEnd)();
-      }
-    })
-    .onFinalize(() => {
-      'worklet';
-      if (gestureActive.value) {
-        gestureActive.value = false;
-        hasSetBaseline.value = false;
-        baselineY.value = 0;
-        runOnJS(onGestureEnd)();
       }
     });
 
@@ -369,6 +362,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   return (
     <View style={styles.container}>
       <CameraView
+        key={facing}
         ref={cameraRef}
         style={styles.camera}
         facing={facing}
