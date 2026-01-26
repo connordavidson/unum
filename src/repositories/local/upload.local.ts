@@ -6,9 +6,9 @@
  */
 
 import * as Crypto from 'expo-crypto';
-import { getStoredJSON, setStoredJSON } from '../../shared/utils/storage';
-import { STORAGE_KEYS, API_CONFIG, BFF_STORAGE_KEYS } from '../../shared/constants';
+import { STORAGE_KEYS, API_CONFIG } from '../../shared/constants';
 import { TEST_UPLOADS } from '../../data/testUploads';
+import { BaseLocalRepository } from './base.local';
 import type { Upload, BoundingBox, PaginationCursor, Coordinates } from '../../shared/types';
 import type {
   IUploadRepository,
@@ -62,35 +62,7 @@ function isInBoundingBox(coords: Coordinates, box: BoundingBox): boolean {
 /**
  * Local Upload Repository Implementation
  */
-export class LocalUploadRepository implements IUploadRepository {
-  private deviceId: string = '';
-
-  /**
-   * Initialize with device ID
-   */
-  async initialize(deviceId: string): Promise<void> {
-    this.deviceId = deviceId;
-  }
-
-  /**
-   * Get current device ID
-   */
-  private async getDeviceId(): Promise<string> {
-    if (this.deviceId) return this.deviceId;
-
-    // Try to load from storage
-    const stored = await getStoredJSON<string>(BFF_STORAGE_KEYS.DEVICE_ID);
-    if (stored) {
-      this.deviceId = stored;
-      return stored;
-    }
-
-    // Generate new device ID
-    this.deviceId = Crypto.randomUUID();
-    await setStoredJSON(BFF_STORAGE_KEYS.DEVICE_ID, this.deviceId);
-    return this.deviceId;
-  }
-
+export class LocalUploadRepository extends BaseLocalRepository implements IUploadRepository {
   /**
    * Load all uploads from storage
    */
@@ -100,22 +72,21 @@ export class LocalUploadRepository implements IUploadRepository {
       return TEST_UPLOADS;
     }
 
-    const stored = await getStoredJSON<Upload[]>(STORAGE_KEYS.UPLOADS);
-    return stored || [];
+    return this.loadFromStorage<Upload[]>(STORAGE_KEYS.UPLOADS, []);
   }
 
   /**
    * Save all uploads to storage
    */
   private async saveUploads(uploads: Upload[]): Promise<void> {
-    await setStoredJSON(STORAGE_KEYS.UPLOADS, uploads);
+    await this.saveToStorage(STORAGE_KEYS.UPLOADS, uploads);
   }
 
   // ============ Create ============
 
   async create(input: CreateUploadInput): Promise<BFFUpload> {
     const uploads = await this.loadUploads();
-    const deviceId = await this.getDeviceId();
+    const deviceId = await this.ensureDeviceId();
     const now = new Date().toISOString();
 
     // Create new upload in legacy format
@@ -140,7 +111,7 @@ export class LocalUploadRepository implements IUploadRepository {
 
   async getById(id: string): Promise<BFFUpload | null> {
     const uploads = await this.loadUploads();
-    const deviceId = await this.getDeviceId();
+    const deviceId = await this.ensureDeviceId();
 
     const upload = uploads.find((u) => u.id === id);
     return upload ? toBFFUpload(upload, deviceId) : null;
@@ -153,7 +124,7 @@ export class LocalUploadRepository implements IUploadRepository {
     // In local storage, we don't track device IDs per upload
     // Return all uploads for now
     const uploads = await this.loadUploads();
-    const currentDeviceId = await this.getDeviceId();
+    const currentDeviceId = await this.ensureDeviceId();
 
     const limit = cursor?.limit || 50;
     const offset = cursor?.lastEvaluatedKey ? parseInt(cursor.lastEvaluatedKey, 10) : 0;
@@ -173,7 +144,7 @@ export class LocalUploadRepository implements IUploadRepository {
     cursor?: PaginationCursor
   ): Promise<UploadQueryResult> {
     const uploads = await this.loadUploads();
-    const deviceId = await this.getDeviceId();
+    const deviceId = await this.ensureDeviceId();
 
     // Filter by bounding box
     const filtered = uploads.filter((u) => isInBoundingBox(u.coordinates, boundingBox));
@@ -193,7 +164,7 @@ export class LocalUploadRepository implements IUploadRepository {
 
   async getAll(): Promise<BFFUpload[]> {
     const uploads = await this.loadUploads();
-    const deviceId = await this.getDeviceId();
+    const deviceId = await this.ensureDeviceId();
     return uploads.map((u) => toBFFUpload(u, deviceId));
   }
 
@@ -201,7 +172,7 @@ export class LocalUploadRepository implements IUploadRepository {
 
   async update(id: string, updates: Partial<BFFUpload>): Promise<BFFUpload> {
     const uploads = await this.loadUploads();
-    const deviceId = await this.getDeviceId();
+    const deviceId = await this.ensureDeviceId();
 
     const index = uploads.findIndex((u) => u.id === id);
     if (index === -1) {

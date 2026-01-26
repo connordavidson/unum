@@ -3,3 +3,4 @@ export * from './clustering';
 export * from './storage';
 export * from './coordinates';
 export * from './votes';
+export * from './errors';

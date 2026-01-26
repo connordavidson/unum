@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import MapView, { Marker, Circle, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
-import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet from '@gorhom/bottom-sheet';
@@ -20,11 +19,11 @@ import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
 import { useMapState } from '../hooks/useMapState';
 import { useDownload } from '../hooks/useDownload';
+import { useMapSearch } from '../hooks/useMapSearch';
 import { FeedPanel } from '../components/FeedPanel';
-import { MediaDisplay } from '../components/MediaDisplay';
-import { VoteButtons } from '../components/VoteButtons';
+import { MarkerCallout } from '../components/MarkerCallout';
 import { COLORS, MAP_CONFIG, SHADOWS, BUTTON_SIZES } from '../shared/constants';
-import { formatTimestamp, toLatLng } from '../shared/utils';
+import { toLatLng } from '../shared/utils';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -39,39 +38,16 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   const { position, loading: locationLoading } = useLocation();
 
-  // Search state
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-
-  const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim()) return;
-
-    setSearching(true);
-    setSearchError(null);
-
-    try {
-      const results = await Location.geocodeAsync(searchQuery);
-      if (results.length > 0) {
-        const { latitude, longitude } = results[0];
-        mapRef.current?.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.15,
-          longitudeDelta: 0.15,
-        }, 500);
-        setSearchVisible(false);
-        setSearchQuery('');
-      } else {
-        setSearchError('Location not found');
-      }
-    } catch (error) {
-      setSearchError('Search failed. Please try again.');
-    } finally {
-      setSearching(false);
-    }
-  }, [searchQuery]);
+  // Search hook
+  const {
+    searchVisible,
+    setSearchVisible,
+    searchQuery,
+    setSearchQuery,
+    searching,
+    searchError,
+    handleSearch,
+  } = useMapSearch({ mapRef });
 
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -82,7 +58,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
       refreshUploads();
     }, [refreshUploads])
   );
-  const { downloadMedia } = useDownload();
+  const { createDownloadHandler } = useDownload();
   const {
     region,
     clusters,
@@ -121,12 +97,11 @@ export function MapScreen({ navigation }: MapScreenProps) {
     return map;
   }, [uploads]);
 
-  const handleDownload = useCallback((uploadId: string) => {
-    const upload = uploadsById.get(uploadId);
-    if (upload) {
-      downloadMedia(upload);
-    }
-  }, [uploadsById, downloadMedia]);
+  // Create download handler using the convenience wrapper
+  const handleDownload = useMemo(
+    () => createDownloadHandler(uploadsById),
+    [createDownloadHandler, uploadsById]
+  );
 
   // Track which items are visible in the feed
   const [visibleFeedIds, setVisibleFeedIds] = useState<Set<string>>(new Set());
@@ -179,26 +154,12 @@ export function MapScreen({ navigation }: MapScreenProps) {
               >
                 <View style={[styles.markerPin, isVisibleInFeed && styles.markerPinActive]} />
                 <Callout tooltip style={styles.callout}>
-                  <View style={styles.calloutContent}>
-                    <MediaDisplay upload={upload} style={styles.calloutMedia} />
-                    <View style={styles.calloutActions}>
-                      <VoteButtons
-                        uploadId={upload.id}
-                        votes={upload.votes}
-                        coordinates={upload.coordinates}
-                        userVote={userVotes[upload.id]}
-                        onVote={handleVote}
-                        onDownload={handleDownload}
-                        size="large"
-                      />
-                    </View>
-                    <View style={styles.calloutTimestamp}>
-                      <Ionicons name="time-outline" size={12} color={COLORS.TEXT_TERTIARY} />
-                      <View style={styles.timestampText}>
-                        {/* Text wrapper for proper styling */}
-                      </View>
-                    </View>
-                  </View>
+                  <MarkerCallout
+                    upload={upload}
+                    userVote={userVotes[upload.id]}
+                    onVote={handleVote}
+                    onDownload={handleDownload}
+                  />
                 </Callout>
               </Marker>
             );
@@ -394,33 +355,6 @@ const styles = StyleSheet.create({
   },
   callout: {
     width: 280,
-  },
-  calloutContent: {
-    backgroundColor: COLORS.BACKGROUND,
-    borderRadius: 12,
-    padding: 12,
-    ...SHADOWS.MEDIUM,
-  },
-  calloutMedia: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  calloutActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  calloutTimestamp: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  timestampText: {
-    fontSize: 12,
-    color: COLORS.TEXT_TERTIARY,
   },
   clusterMarker: {
     alignItems: 'center',
