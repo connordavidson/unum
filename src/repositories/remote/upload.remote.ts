@@ -81,25 +81,52 @@ function toDynamoItem(upload: BFFUpload, mediaKey: string): DynamoUploadItem {
 }
 
 /**
+ * Get approximate geohash cell dimensions based on precision
+ * Precision 6 ≈ 1.2km x 0.6km
+ */
+function getGeohashCellSize(precision: number): { latDeg: number; lonDeg: number } {
+  // Approximate degrees per geohash cell at different precisions
+  // These are rough estimates that work for mid-latitudes
+  const sizes: Record<number, { latDeg: number; lonDeg: number }> = {
+    4: { latDeg: 0.18, lonDeg: 0.18 },    // ~20km
+    5: { latDeg: 0.045, lonDeg: 0.045 },  // ~5km
+    6: { latDeg: 0.011, lonDeg: 0.011 },  // ~1.2km
+    7: { latDeg: 0.003, lonDeg: 0.003 },  // ~150m
+  };
+  return sizes[precision] || sizes[6];
+}
+
+/**
  * Get all geohash prefixes that cover a bounding box
+ * Uses cell-based sampling to ensure we don't miss any geohash cells
  */
 function getGeohashesForBoundingBox(box: BoundingBox): string[] {
   const { minLat, maxLat, minLon, maxLon } = box;
-
-  // Get geohashes for corners and center
   const precision = dynamoConfig.geohashPrecision;
   const geohashes = new Set<string>();
 
-  // Sample points across the bounding box
-  const latStep = (maxLat - minLat) / 3;
-  const lonStep = (maxLon - minLon) / 3;
+  // Get geohash cell size - step must be <= cell size to ensure coverage
+  const cellSize = getGeohashCellSize(precision);
 
-  for (let lat = minLat; lat <= maxLat; lat += latStep) {
-    for (let lon = minLon; lon <= maxLon; lon += lonStep) {
+  // Always use cell size as step to guarantee every cell is sampled
+  const latStep = cellSize.latDeg;
+  const lonStep = cellSize.lonDeg;
+
+  // Safety cap to prevent runaway iteration for huge bounding boxes
+  const maxIterations = 10000;
+  let iterations = 0;
+
+  for (let lat = minLat; lat <= maxLat && iterations < maxIterations; lat += latStep) {
+    for (let lon = minLon; lon <= maxLon && iterations < maxIterations; lon += lonStep) {
       const hash = ngeohash.encode(lat, lon, precision);
       geohashes.add(hash);
+      iterations++;
     }
   }
+
+  const latRange = maxLat - minLat;
+  const lonRange = maxLon - minLon;
+  console.log(`[RemoteUploadRepo] Geohash query: ${geohashes.size} unique hashes for bbox ${latRange.toFixed(2)}° x ${lonRange.toFixed(2)}° (${iterations} samples)`);
 
   return Array.from(geohashes);
 }

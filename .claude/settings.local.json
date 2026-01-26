@@ -24,7 +24,9 @@
       "Bash(xcrun devicectl:*)",
       "Bash(xcrun xctrace:*)",
       "Bash(git checkout:*)",
-      "Bash(perl -i -pe:*)"
+      "Bash(perl -i -pe:*)",
+      "Bash(find:*)",
+      "Bash(git reset:*)"
     ]
   }
 }
