@@ -53,10 +53,24 @@ export function MapScreen({ navigation }: MapScreenProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
+  // Calculate bounding box from position to fetch AWS data
   useFocusEffect(
     useCallback(() => {
-      refreshUploads();
-    }, [refreshUploads])
+      const center = position || MAP_CONFIG.DEFAULT_CENTER;
+      // Handle both tuple [lat, lon] and object {latitude, longitude} formats
+      const lat = Array.isArray(center) ? center[0] : center.latitude;
+      const lon = Array.isArray(center) ? center[1] : center.longitude;
+
+      const boundingBox = {
+        minLat: lat - MAP_CONFIG.DEFAULT_DELTA.latitudeDelta / 2,
+        maxLat: lat + MAP_CONFIG.DEFAULT_DELTA.latitudeDelta / 2,
+        minLon: lon - MAP_CONFIG.DEFAULT_DELTA.longitudeDelta / 2,
+        maxLon: lon + MAP_CONFIG.DEFAULT_DELTA.longitudeDelta / 2,
+      };
+
+      console.log('[MapScreen] Focus effect - refreshing with bounding box:', boundingBox);
+      refreshUploads(boundingBox);
+    }, [refreshUploads, position])
   );
   const { createDownloadHandler } = useDownload();
   const {
@@ -67,6 +81,22 @@ export function MapScreen({ navigation }: MapScreenProps) {
     showUnclusteredMarkers,
     handleRegionChange,
   } = useMapState(uploads, position);
+
+  // Handle map region change - update clustering AND fetch new data
+  const handleMapRegionChange = useCallback((newRegion: typeof region) => {
+    // Update clustering state
+    handleRegionChange(newRegion);
+
+    // Fetch data for new region
+    const boundingBox = {
+      minLat: newRegion.latitude - newRegion.latitudeDelta / 2,
+      maxLat: newRegion.latitude + newRegion.latitudeDelta / 2,
+      minLon: newRegion.longitude - newRegion.longitudeDelta / 2,
+      maxLon: newRegion.longitude + newRegion.longitudeDelta / 2,
+    };
+    console.log('[MapScreen] Region changed - refreshing with bounding box:', boundingBox);
+    refreshUploads(boundingBox);
+  }, [handleRegionChange, refreshUploads]);
 
   // Handle pull-to-refresh in feed
   const handleRefresh = useCallback(async () => {
@@ -137,7 +167,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
           ...position,
           ...MAP_CONFIG.DEFAULT_DELTA,
         }}
-        onRegionChangeComplete={handleRegionChange}
+        onRegionChangeComplete={handleMapRegionChange}
         showsUserLocation
         showsMyLocationButton
       >

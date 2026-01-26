@@ -206,6 +206,38 @@ export async function deleteUpload(uploadId: string): Promise<void> {
 }
 
 /**
+ * Get all uploads (scan operation)
+ * Note: Use with caution - scans can be expensive for large tables.
+ * Acceptable for <10k items with caching.
+ */
+export async function getAllUploads(): Promise<DynamoUploadItem[]> {
+  return withRetry(async () => {
+    const items: DynamoUploadItem[] = [];
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const result = await docClient.send(
+        new ScanCommand({
+          TableName: dynamoConfig.tableName,
+          FilterExpression: 'SK = :sk',
+          ExpressionAttributeValues: {
+            ':sk': 'METADATA',
+          },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+
+      if (result.Items) {
+        items.push(...(result.Items as DynamoUploadItem[]));
+      }
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return items;
+  });
+}
+
+/**
  * Query uploads by geohash prefix (for location-based queries)
  */
 export async function queryUploadsByGeohash(
