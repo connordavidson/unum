@@ -87,10 +87,7 @@ export function useCamera(): UseCameraResult {
     if (isRecording) return;
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
     setIsCameraReady(false);
-    // Fallback: expo-camera may not always fire onCameraReady after facing change
-    setTimeout(() => {
-      setIsCameraReady(true);
-    }, 500);
+    // onCameraReady will be called when the new CameraView mounts (via key={facing})
   }, [isRecording]);
 
   const takePhoto = useCallback(async () => {

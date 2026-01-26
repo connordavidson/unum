@@ -74,6 +74,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, [searchQuery]);
 
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
   useFocusEffect(
@@ -90,6 +91,28 @@ export function MapScreen({ navigation }: MapScreenProps) {
     showUnclusteredMarkers,
     handleRegionChange,
   } = useMapState(uploads, position);
+
+  // Handle pull-to-refresh in feed
+  const handleRefresh = useCallback(async () => {
+    console.log('[MapScreen] Pull-to-refresh triggered');
+    setIsRefreshing(true);
+    try {
+      // Calculate bounding box from current region
+      const boundingBox = {
+        minLat: region.latitude - region.latitudeDelta / 2,
+        maxLat: region.latitude + region.latitudeDelta / 2,
+        minLon: region.longitude - region.longitudeDelta / 2,
+        maxLon: region.longitude + region.longitudeDelta / 2,
+      };
+      console.log('[MapScreen] Refreshing with bounding box:', boundingBox);
+      await refreshUploads(boundingBox);
+      // Re-trigger region change to update clusters and visible uploads
+      handleRegionChange(region);
+    } finally {
+      setIsRefreshing(false);
+      console.log('[MapScreen] Refresh complete');
+    }
+  }, [refreshUploads, handleRegionChange, region]);
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {
@@ -293,6 +316,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
         onVote={handleVote}
         onVisibleItemsChange={handleVisibleItemsChange}
         bottomSheetRef={bottomSheetRef}
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
       />
     </View>
   );

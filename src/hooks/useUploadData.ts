@@ -14,6 +14,13 @@ import { getUploadService, UploadService } from '../services/upload.service';
 import { getMediaService, MediaService } from '../services/media.service';
 import type { Upload, CreateUploadData, VoteType, UserVotes } from '../shared/types';
 
+interface BoundingBox {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}
+
 interface UseUploadDataResult {
   uploads: Upload[];
   userVotes: UserVotes;
@@ -21,7 +28,7 @@ interface UseUploadDataResult {
   error: string | null;
   createUpload: (data: CreateUploadData) => Promise<void>;
   handleVote: (uploadId: number, voteType: VoteType) => Promise<void>;
-  refreshUploads: () => Promise<void>;
+  refreshUploads: (boundingBox?: BoundingBox) => Promise<void>;
 }
 
 // Generate a simple unique ID
@@ -321,10 +328,68 @@ export function useUploadData(): UseUploadDataResult {
     }
   }, [uploads, userVotes, saveUploads, saveUserVotes, getVoteRepo]);
 
-  // Refresh uploads
-  const refreshUploads = useCallback(async () => {
+  // Refresh uploads from AWS (if enabled) or local storage
+  const refreshUploads = useCallback(async (boundingBox?: BoundingBox) => {
+    console.log('[useUploadData] refreshUploads called', boundingBox ? 'with bounding box' : 'without bounding box');
+
+    // Use ref for most current deviceId value
+    const currentDeviceId = deviceIdRef.current || deviceId;
+
+    if (FEATURE_FLAGS.USE_AWS_BACKEND && currentDeviceId && boundingBox) {
+      console.log('[useUploadData] Fetching from AWS with bounding box...');
+      try {
+        const uploadSvc = getUploadSvc();
+        const mediaSvc = getMediaSvc();
+        if (uploadSvc && mediaSvc) {
+          // Fetch uploads by location from remote
+          const result = await uploadSvc.getByLocation(boundingBox);
+
+          // Convert BFF uploads to local format with resolved media URLs
+          const newUploads: Upload[] = await Promise.all(
+            result.uploads.map(async (bff) => {
+              // Resolve media URL from mediaKey
+              let mediaUrl = bff.mediaUrl;
+              if (!mediaUrl && bff.mediaKey) {
+                try {
+                  mediaUrl = await mediaSvc.getDisplayUrl(bff.mediaKey);
+                } catch (err) {
+                  console.error('[useUploadData] Failed to get display URL for', bff.mediaKey, err);
+                  mediaUrl = '';
+                }
+              }
+
+              return {
+                id: parseInt(bff.id.slice(-8), 16) || Date.now(),
+                type: bff.type,
+                data: mediaUrl,
+                coordinates: bff.coordinates,
+                timestamp: bff.timestamp,
+                caption: bff.caption,
+                votes: bff.voteCount,
+              };
+            })
+          );
+
+          // Filter out uploads with empty media URLs
+          const validUploads = newUploads.filter((u) => u.data && u.data.length > 0);
+
+          // Sort by timestamp descending
+          validUploads.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+          setUploads(validUploads);
+          console.log('[useUploadData] Fetched', validUploads.length, 'uploads from AWS');
+          return;
+        }
+      } catch (err) {
+        console.error('[useUploadData] Failed to fetch from AWS:', err);
+        // Fall back to local
+      }
+    }
+
+    // Fall back to local storage
+    console.log('[useUploadData] Loading from local storage');
     await loadUploads();
-  }, [loadUploads]);
+  }, [loadUploads, deviceId, getUploadSvc, getMediaSvc]);
 
   return {
     uploads,

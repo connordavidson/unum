@@ -362,6 +362,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   return (
     <View style={styles.container}>
       <CameraView
+        key={facing}
         ref={cameraRef}
         style={styles.camera}
         facing={facing}
