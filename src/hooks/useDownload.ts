@@ -11,6 +11,8 @@ const FileSystemCompat = FileSystem as typeof FileSystem & {
 
 interface UseDownloadResult {
   downloadMedia: (upload: Upload) => Promise<void>;
+  /** Create a download handler that looks up uploads by ID from a map */
+  createDownloadHandler: (uploadsById: Map<string, Upload>) => (uploadId: string) => void;
   isDownloading: boolean;
 }
 
@@ -55,5 +57,15 @@ export function useDownload(): UseDownloadResult {
     }
   }, []);
 
-  return { downloadMedia, isDownloading };
+  const createDownloadHandler = useCallback(
+    (uploadsById: Map<string, Upload>) => (uploadId: string) => {
+      const upload = uploadsById.get(uploadId);
+      if (upload) {
+        downloadMedia(upload);
+      }
+    },
+    [downloadMedia]
+  );
+
+  return { downloadMedia, createDownloadHandler, isDownloading };
 }

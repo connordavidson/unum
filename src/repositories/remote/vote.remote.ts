@@ -16,6 +16,7 @@ import {
   createVoteSK,
   createDeviceGSI1PK,
 } from '../../api/clients/dynamodb.client';
+import { createVoteId, calculateVoteDelta } from '../../shared/utils/votes';
 import type { VoteType } from '../../shared/types';
 import type {
   IVoteRepository,
@@ -25,13 +26,6 @@ import type {
 import type { DynamoVoteItem } from '../../api/types';
 
 // ============ Conversion Helpers ============
-
-/**
- * Create vote ID from upload and device IDs
- */
-function createVoteId(uploadId: string, deviceId: string): string {
-  return `${uploadId}#${deviceId}`;
-}
 
 /**
  * Convert DynamoDB item to BFFVote
@@ -61,31 +55,6 @@ function toDynamoItem(vote: BFFVote): DynamoVoteItem {
     voteType: vote.voteType,
     timestamp: vote.timestamp,
   };
-}
-
-/**
- * Calculate vote delta for updating upload vote count
- */
-function calculateVoteDelta(
-  previousVoteType: VoteType | null,
-  newVoteType: VoteType | null
-): number {
-  if (previousVoteType === newVoteType) {
-    return 0;
-  }
-
-  if (previousVoteType === null) {
-    // New vote
-    return newVoteType === 'up' ? 1 : -1;
-  }
-
-  if (newVoteType === null) {
-    // Removed vote
-    return previousVoteType === 'up' ? -1 : 1;
-  }
-
-  // Changed vote (up to down or down to up)
-  return newVoteType === 'up' ? 2 : -2;
 }
 
 // ============ Repository Implementation ============

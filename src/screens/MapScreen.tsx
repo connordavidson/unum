@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import MapView, { Marker, Circle, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
-import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet from '@gorhom/bottom-sheet';
@@ -20,11 +19,11 @@ import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
 import { useMapState } from '../hooks/useMapState';
 import { useDownload } from '../hooks/useDownload';
+import { useMapSearch } from '../hooks/useMapSearch';
 import { FeedPanel } from '../components/FeedPanel';
-import { MediaDisplay } from '../components/MediaDisplay';
-import { VoteButtons } from '../components/VoteButtons';
+import { MarkerCallout } from '../components/MarkerCallout';
 import { COLORS, MAP_CONFIG, SHADOWS, BUTTON_SIZES } from '../shared/constants';
-import { formatTimestamp, toLatLng } from '../shared/utils';
+import { toLatLng } from '../shared/utils';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -39,39 +38,16 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   const { position, loading: locationLoading } = useLocation();
 
-  // Search state
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-
-  const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim()) return;
-
-    setSearching(true);
-    setSearchError(null);
-
-    try {
-      const results = await Location.geocodeAsync(searchQuery);
-      if (results.length > 0) {
-        const { latitude, longitude } = results[0];
-        mapRef.current?.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.15,
-          longitudeDelta: 0.15,
-        }, 500);
-        setSearchVisible(false);
-        setSearchQuery('');
-      } else {
-        setSearchError('Location not found');
-      }
-    } catch (error) {
-      setSearchError('Search failed. Please try again.');
-    } finally {
-      setSearching(false);
-    }
-  }, [searchQuery]);
+  // Search hook
+  const {
+    searchVisible,
+    setSearchVisible,
+    searchQuery,
+    setSearchQuery,
+    searching,
+    searchError,
+    handleSearch,
+  } = useMapSearch({ mapRef });
 
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -82,7 +58,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
       refreshUploads();
     }, [refreshUploads])
   );
-  const { downloadMedia } = useDownload();
+  const { createDownloadHandler } = useDownload();
   const {
     region,
     clusters,
@@ -116,22 +92,21 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {
-    const map = new Map<number, typeof uploads[0]>();
+    const map = new Map<string, typeof uploads[0]>();
     uploads.forEach((upload) => map.set(upload.id, upload));
     return map;
   }, [uploads]);
 
-  const handleDownload = useCallback((uploadId: number) => {
-    const upload = uploadsById.get(uploadId);
-    if (upload) {
-      downloadMedia(upload);
-    }
-  }, [uploadsById, downloadMedia]);
+  // Create download handler using the convenience wrapper
+  const handleDownload = useMemo(
+    () => createDownloadHandler(uploadsById),
+    [createDownloadHandler, uploadsById]
+  );
 
   // Track which items are visible in the feed
-  const [visibleFeedIds, setVisibleFeedIds] = useState<Set<number>>(new Set());
+  const [visibleFeedIds, setVisibleFeedIds] = useState<Set<string>>(new Set());
 
-  const handleVisibleItemsChange = useCallback((visibleIds: number[]) => {
+  const handleVisibleItemsChange = useCallback((visibleIds: string[]) => {
     setVisibleFeedIds(new Set(visibleIds));
   }, []);
 
@@ -144,18 +119,17 @@ export function MapScreen({ navigation }: MapScreenProps) {
     bottomSheetRef.current?.snapToIndex(0);
   }, []);
 
-  // Show loading state while getting location
-  if (locationLoading || !position) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={COLORS.PRIMARY} />
-      </View>
-    );
-  }
+  // Show loading state while getting location (but still render buttons)
+  const isLoading = locationLoading || !position;
 
   return (
     <View style={styles.container}>
-      <MapView
+      {isLoading ? (
+        <View style={[styles.map, styles.loadingContainer]}>
+          <ActivityIndicator size="large" color={COLORS.PRIMARY} />
+        </View>
+      ) : (
+        <MapView
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
@@ -179,26 +153,12 @@ export function MapScreen({ navigation }: MapScreenProps) {
               >
                 <View style={[styles.markerPin, isVisibleInFeed && styles.markerPinActive]} />
                 <Callout tooltip style={styles.callout}>
-                  <View style={styles.calloutContent}>
-                    <MediaDisplay upload={upload} style={styles.calloutMedia} />
-                    <View style={styles.calloutActions}>
-                      <VoteButtons
-                        uploadId={upload.id}
-                        votes={upload.votes}
-                        coordinates={upload.coordinates}
-                        userVote={userVotes[upload.id]}
-                        onVote={handleVote}
-                        onDownload={handleDownload}
-                        size="large"
-                      />
-                    </View>
-                    <View style={styles.calloutTimestamp}>
-                      <Ionicons name="time-outline" size={12} color={COLORS.TEXT_TERTIARY} />
-                      <View style={styles.timestampText}>
-                        {/* Text wrapper for proper styling */}
-                      </View>
-                    </View>
-                  </View>
+                  <MarkerCallout
+                    upload={upload}
+                    userVote={userVotes[upload.id]}
+                    onVote={handleVote}
+                    onDownload={handleDownload}
+                  />
                 </Callout>
               </Marker>
             );
@@ -248,7 +208,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
               </Marker>
             );
           })}
-      </MapView>
+        </MapView>
+      )}
 
       {/* Search button */}
       <TouchableOpacity
@@ -309,16 +270,18 @@ export function MapScreen({ navigation }: MapScreenProps) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Feed bottom sheet */}
-      <FeedPanel
-        uploads={visibleUploads}
-        userVotes={userVotes}
-        onVote={handleVote}
-        onVisibleItemsChange={handleVisibleItemsChange}
-        bottomSheetRef={bottomSheetRef}
-        onRefresh={handleRefresh}
-        isRefreshing={isRefreshing}
-      />
+      {/* Feed bottom sheet - only show when map is ready */}
+      {!isLoading && (
+        <FeedPanel
+          uploads={visibleUploads}
+          userVotes={userVotes}
+          onVote={handleVote}
+          onVisibleItemsChange={handleVisibleItemsChange}
+          bottomSheetRef={bottomSheetRef}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+        />
+      )}
     </View>
   );
 }
@@ -394,33 +357,6 @@ const styles = StyleSheet.create({
   },
   callout: {
     width: 280,
-  },
-  calloutContent: {
-    backgroundColor: COLORS.BACKGROUND,
-    borderRadius: 12,
-    padding: 12,
-    ...SHADOWS.MEDIUM,
-  },
-  calloutMedia: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  calloutActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  calloutTimestamp: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  timestampText: {
-    fontSize: 12,
-    color: COLORS.TEXT_TERTIARY,
   },
   clusterMarker: {
     alignItems: 'center',

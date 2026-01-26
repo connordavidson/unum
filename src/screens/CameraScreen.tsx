@@ -23,7 +23,7 @@ import { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
-import { COLORS, BUTTON_SIZES } from '../shared/constants';
+import { COLORS, BUTTON_SIZES, CAMERA_CONFIG } from '../shared/constants';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -114,8 +114,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
         }
         // Calculate zoom: moving UP (negative delta) = zoom IN
         const delta = -(event.absoluteY - baselineY.value);
-        // Scale: ~400px of movement = full zoom range
-        const newZoom = Math.max(0, Math.min(1, delta / 400));
+        // Scale: ZOOM_SCALE_PX of movement = full zoom range
+        const newZoom = Math.max(0, Math.min(1, delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
         runOnJS(updateZoom)(newZoom);
       }
     });

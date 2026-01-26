@@ -34,6 +34,9 @@ export const LOCATION_CONFIG = {
 // ============ Camera Configuration ============
 export const CAMERA_CONFIG = {
   HOLD_DELAY_MS: 500,
+  ZOOM_SCALE_PX: 400,
+  MAX_VIDEO_DURATION: 60,
+  PHOTO_QUALITY: 0.8,
 };
 
 // ============ Storage Keys ============
@@ -118,15 +121,8 @@ export const BUTTON_SIZES = {
   CAPTURE: 80,
 };
 
-// Helper for circular button styles
-export const circularButtonStyle = (size: number, backgroundColor: string) => ({
-  width: size,
-  height: size,
-  borderRadius: size / 2,
-  backgroundColor,
-  justifyContent: "center" as const,
-  alignItems: "center" as const,
-});
+// Re-export from utils for backward compatibility
+export { circularButtonStyle } from '../utils/styles';
 
 // ============ Feature Flags ============
 export const FEATURE_FLAGS = {

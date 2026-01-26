@@ -22,7 +22,9 @@
       "Bash(git push:*)",
       "WebSearch",
       "Bash(xcrun devicectl:*)",
-      "Bash(xcrun xctrace:*)"
+      "Bash(xcrun xctrace:*)",
+      "Bash(git checkout:*)",
+      "Bash(perl -i -pe:*)"
     ]
   }
 }

@@ -5,9 +5,9 @@
  * Maintains backward compatibility with existing UserVotes format.
  */
 
-import * as Crypto from 'expo-crypto';
-import { getStoredJSON, setStoredJSON } from '../../shared/utils/storage';
-import { STORAGE_KEYS, BFF_STORAGE_KEYS } from '../../shared/constants';
+import { createVoteId, calculateVoteDelta } from '../../shared/utils/votes';
+import { STORAGE_KEYS } from '../../shared/constants';
+import { BaseLocalRepository } from './base.local';
 import type { VoteType, UserVotes } from '../../shared/types';
 import type {
   IVoteRepository,
@@ -16,57 +16,21 @@ import type {
 } from '../interfaces/vote.repository';
 
 /**
- * Create a vote ID from upload and device IDs
- */
-function createVoteId(uploadId: string, deviceId: string): string {
-  return `${uploadId}#${deviceId}`;
-}
-
-/**
  * Local Vote Repository Implementation
  */
-export class LocalVoteRepository implements IVoteRepository {
-  private deviceId: string = '';
-
-  /**
-   * Initialize with device ID
-   */
-  async initialize(deviceId: string): Promise<void> {
-    this.deviceId = deviceId;
-  }
-
-  /**
-   * Get current device ID
-   */
-  private async getDeviceId(): Promise<string> {
-    if (this.deviceId) return this.deviceId;
-
-    // Try to load from storage
-    const stored = await getStoredJSON<string>(BFF_STORAGE_KEYS.DEVICE_ID);
-    if (stored) {
-      this.deviceId = stored;
-      return stored;
-    }
-
-    // Generate new device ID
-    this.deviceId = Crypto.randomUUID();
-    await setStoredJSON(BFF_STORAGE_KEYS.DEVICE_ID, this.deviceId);
-    return this.deviceId;
-  }
-
+export class LocalVoteRepository extends BaseLocalRepository implements IVoteRepository {
   /**
    * Load user votes from storage (legacy format)
    */
   private async loadUserVotes(): Promise<UserVotes> {
-    const stored = await getStoredJSON<UserVotes>(STORAGE_KEYS.USER_VOTES);
-    return stored || {};
+    return this.loadFromStorage<UserVotes>(STORAGE_KEYS.USER_VOTES, {});
   }
 
   /**
    * Save user votes to storage (legacy format)
    */
   private async saveUserVotes(votes: UserVotes): Promise<void> {
-    await setStoredJSON(STORAGE_KEYS.USER_VOTES, votes);
+    await this.saveToStorage(STORAGE_KEYS.USER_VOTES, votes);
   }
 
   /**
@@ -93,7 +57,7 @@ export class LocalVoteRepository implements IVoteRepository {
     input: UpsertVoteInput
   ): Promise<{ vote: BFFVote; previousVoteType: VoteType | null }> {
     const userVotes = await this.loadUserVotes();
-    const deviceId = await this.getDeviceId();
+    const deviceId = await this.ensureDeviceId();
 
     // Legacy format uses numeric upload IDs
     const numericUploadId = parseInt(input.uploadId, 10);
@@ -112,7 +76,7 @@ export class LocalVoteRepository implements IVoteRepository {
 
   async getVote(uploadId: string, deviceId: string): Promise<BFFVote | null> {
     const userVotes = await this.loadUserVotes();
-    const currentDeviceId = await this.getDeviceId();
+    const currentDeviceId = await this.ensureDeviceId();
 
     // Only return votes for the current device
     if (deviceId !== currentDeviceId) {
@@ -131,7 +95,7 @@ export class LocalVoteRepository implements IVoteRepository {
 
   async getVotesByDevice(deviceId: string): Promise<BFFVote[]> {
     const userVotes = await this.loadUserVotes();
-    const currentDeviceId = await this.getDeviceId();
+    const currentDeviceId = await this.ensureDeviceId();
 
     // Only return votes for the current device
     if (deviceId !== currentDeviceId) {
@@ -145,12 +109,12 @@ export class LocalVoteRepository implements IVoteRepository {
 
   async getVotesForUpload(uploadId: string): Promise<BFFVote[]> {
     // In local storage, we only have the current user's vote
-    const vote = await this.getVote(uploadId, await this.getDeviceId());
+    const vote = await this.getVote(uploadId, await this.ensureDeviceId());
     return vote ? [vote] : [];
   }
 
   async getUserVotesMap(deviceId: string): Promise<Record<string, VoteType>> {
-    const currentDeviceId = await this.getDeviceId();
+    const currentDeviceId = await this.ensureDeviceId();
 
     // Only return votes for the current device
     if (deviceId !== currentDeviceId) {
@@ -171,7 +135,7 @@ export class LocalVoteRepository implements IVoteRepository {
 
   async remove(uploadId: string, deviceId: string): Promise<VoteType | null> {
     const userVotes = await this.loadUserVotes();
-    const currentDeviceId = await this.getDeviceId();
+    const currentDeviceId = await this.ensureDeviceId();
 
     // Only allow removing votes for the current device
     if (deviceId !== currentDeviceId) {
@@ -223,27 +187,13 @@ export class LocalVoteRepository implements IVoteRepository {
 
   /**
    * Calculate vote delta for an upload based on vote change
+   * (delegates to shared utility function)
    */
   calculateVoteDelta(
     previousVoteType: VoteType | null,
     newVoteType: VoteType | null
   ): number {
-    if (previousVoteType === newVoteType) {
-      return 0; // No change
-    }
-
-    if (previousVoteType === null) {
-      // New vote
-      return newVoteType === 'up' ? 1 : -1;
-    }
-
-    if (newVoteType === null) {
-      // Removed vote
-      return previousVoteType === 'up' ? -1 : 1;
-    }
-
-    // Changed vote (up to down or down to up)
-    return newVoteType === 'up' ? 2 : -2;
+    return calculateVoteDelta(previousVoteType, newVoteType);
   }
 }
 
