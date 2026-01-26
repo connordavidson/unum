@@ -42,3 +42,5 @@ yarn-error.*
 
 # Environment files with secrets
 .env
+
+.claude/settings.local.json
