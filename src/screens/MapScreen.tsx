@@ -82,13 +82,12 @@ export function MapScreen({ navigation }: MapScreenProps) {
       };
       console.log('[MapScreen] Refreshing with bounding box:', boundingBox);
       await refreshUploads(boundingBox);
-      // Re-trigger region change to update clusters and visible uploads
-      handleRegionChange(region);
+      // State update will trigger re-render automatically via useMapState
     } finally {
       setIsRefreshing(false);
       console.log('[MapScreen] Refresh complete');
     }
-  }, [refreshUploads, handleRegionChange, region]);
+  }, [refreshUploads, region]);
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {

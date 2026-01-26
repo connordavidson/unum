@@ -186,14 +186,14 @@ export function useUploadData(): UseUploadDataResult {
     if (boundingBox) {
       const awsUploads = await fetchFromAWS(boundingBox);
       if (awsUploads) {
-        setUploads(awsUploads);
+        await saveUploads(awsUploads);
         return;
       }
     }
 
     // Fall back to local storage
     await loadUploads();
-  }, [loadUploads, fetchFromAWS]);
+  }, [loadUploads, fetchFromAWS, saveUploads]);
 
   return {
     uploads,

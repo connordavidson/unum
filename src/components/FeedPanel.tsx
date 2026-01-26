@@ -193,6 +193,7 @@ export function FeedPanel({
     >
       <BottomSheetFlatList
         data={uploads}
+        extraData={uploads}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         contentContainerStyle={styles.listContent}
