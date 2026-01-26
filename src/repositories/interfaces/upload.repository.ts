@@ -27,7 +27,8 @@ export interface BFFUpload {
   timestamp: string;
   caption?: string;
   voteCount: number;
-  deviceId: string;
+  userId: string;             // Apple user ID (authenticated user)
+  deviceId: string;           // Device identifier
   geohash?: string;           // For geo queries
   createdAt: string;
   updatedAt: string;
@@ -43,7 +44,8 @@ export interface CreateUploadInput {
   mediaKey?: string;           // S3 object key (for remote storage)
   coordinates: Coordinates;
   caption?: string;
-  deviceId: string;
+  userId: string;              // Apple user ID (authenticated user)
+  deviceId: string;            // Device identifier
 }
 
 /**

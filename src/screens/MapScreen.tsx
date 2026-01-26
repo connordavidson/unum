@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import MapView, { Marker, Circle, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,11 +18,13 @@ import BottomSheet from '@gorhom/bottom-sheet';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
+import { useAuthContext } from '../contexts/AuthContext';
 import { useMapState } from '../hooks/useMapState';
 import { useDownload } from '../hooks/useDownload';
 import { useMapSearch } from '../hooks/useMapSearch';
 import { FeedPanel } from '../components/FeedPanel';
 import { MarkerCallout } from '../components/MarkerCallout';
+import { ProfileDrawer } from '../components/ProfileDrawer';
 import { COLORS, MAP_CONFIG, SHADOWS, BUTTON_SIZES } from '../shared/constants';
 import { toLatLng } from '../shared/utils';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -51,6 +54,10 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [profileDrawerVisible, setProfileDrawerVisible] = useState(false);
+
+  // Auth state for gating camera access
+  const { auth } = useAuthContext();
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
   // Calculate bounding box from position to fetch AWS data
@@ -141,13 +148,56 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, []);
 
   const handleCameraPress = useCallback(() => {
+    // Check if user is authenticated before allowing camera access
+    if (!auth.isAuthenticated) {
+      if (auth.isAppleSignInAvailable) {
+        // Show sign-in screen
+        navigation.navigate('SignIn');
+      } else {
+        // Non-iOS device - show message
+        Alert.alert(
+          'Sign In Required',
+          'Posting content requires an iOS device with Apple Sign-In.'
+        );
+      }
+      return;
+    }
     navigation.navigate('Camera');
-  }, [navigation]);
+  }, [navigation, auth.isAuthenticated, auth.isAppleSignInAvailable]);
 
   const handleMarkerPress = useCallback(() => {
     // Minimize bottom sheet when interacting with map
     bottomSheetRef.current?.snapToIndex(0);
   }, []);
+
+  // Handle account button press
+  const handleAccountPress = useCallback(() => {
+    if (auth.isAuthenticated) {
+      setProfileDrawerVisible(true);
+    } else {
+      navigation.navigate('SignIn');
+    }
+  }, [auth.isAuthenticated, navigation]);
+
+  // Wrap vote handler with auth check
+  const handleVoteWithAuth = useCallback(
+    (uploadId: string, voteType: 'up' | 'down') => {
+      // Check if user is authenticated before allowing vote
+      if (!auth.isAuthenticated) {
+        if (auth.isAppleSignInAvailable) {
+          navigation.navigate('SignIn');
+        } else {
+          Alert.alert(
+            'Sign In Required',
+            'Voting requires an iOS device with Apple Sign-In.'
+          );
+        }
+        return;
+      }
+      handleVote(uploadId, voteType);
+    },
+    [auth.isAuthenticated, auth.isAppleSignInAvailable, navigation, handleVote]
+  );
 
   // Show loading state while getting location (but still render buttons)
   const isLoading = locationLoading || !position;
@@ -186,7 +236,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
                   <MarkerCallout
                     upload={upload}
                     userVote={userVotes[upload.id]}
-                    onVote={handleVote}
+                    onVote={handleVoteWithAuth}
                     onDownload={handleDownload}
                   />
                 </Callout>
@@ -240,6 +290,23 @@ export function MapScreen({ navigation }: MapScreenProps) {
           })}
         </MapView>
       )}
+
+      {/* Account button */}
+      <TouchableOpacity
+        style={[styles.accountButton, { top: insets.top + 16 }]}
+        onPress={handleAccountPress}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="person" size={20} color={COLORS.BACKGROUND} />
+      </TouchableOpacity>
+
+      {/* Profile drawer */}
+      <ProfileDrawer
+        visible={profileDrawerVisible}
+        onClose={() => setProfileDrawerVisible(false)}
+        user={auth.user}
+        onSignOut={auth.signOut}
+      />
 
       {/* Search button */}
       <TouchableOpacity
@@ -305,7 +372,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
         <FeedPanel
           uploads={visibleUploads}
           userVotes={userVotes}
-          onVote={handleVote}
+          onVote={handleVoteWithAuth}
           onVisibleItemsChange={handleVisibleItemsChange}
           bottomSheetRef={bottomSheetRef}
           onRefresh={handleRefresh}
@@ -327,6 +394,17 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  accountButton: {
+    position: 'absolute',
+    left: 16,
+    width: BUTTON_SIZES.SMALL,
+    height: BUTTON_SIZES.SMALL,
+    borderRadius: BUTTON_SIZES.SMALL / 2,
+    backgroundColor: COLORS.PRIMARY,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...SHADOWS.MEDIUM,
   },
   searchButton: {
     position: 'absolute',

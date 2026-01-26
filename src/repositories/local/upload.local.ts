@@ -35,7 +35,7 @@ function toLegacyUpload(bffUpload: BFFUpload): Upload {
 /**
  * Convert Upload to BFFUpload format
  */
-function toBFFUpload(upload: Upload, deviceId: string): BFFUpload {
+function toBFFUpload(upload: Upload, userId: string, deviceId: string): BFFUpload {
   return {
     id: upload.id,
     type: upload.type,
@@ -44,6 +44,7 @@ function toBFFUpload(upload: Upload, deviceId: string): BFFUpload {
     timestamp: upload.timestamp,
     caption: upload.caption,
     voteCount: upload.votes,
+    userId,
     deviceId,
     createdAt: upload.timestamp,
     updatedAt: upload.timestamp,
@@ -86,7 +87,6 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
 
   async create(input: CreateUploadInput): Promise<BFFUpload> {
     const uploads = await this.loadUploads();
-    const deviceId = await this.ensureDeviceId();
     const now = new Date().toISOString();
 
     // Create new upload in legacy format
@@ -104,7 +104,7 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
     const updatedUploads = [newUpload, ...uploads];
     await this.saveUploads(updatedUploads);
 
-    return toBFFUpload(newUpload, deviceId);
+    return toBFFUpload(newUpload, input.userId, input.deviceId);
   }
 
   // ============ Read ============
@@ -114,7 +114,8 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
     const deviceId = await this.ensureDeviceId();
 
     const upload = uploads.find((u) => u.id === id);
-    return upload ? toBFFUpload(upload, deviceId) : null;
+    // Legacy format doesn't store userId, use deviceId as fallback
+    return upload ? toBFFUpload(upload, deviceId, deviceId) : null;
   }
 
   async getByDeviceId(
@@ -133,7 +134,8 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
     const hasMore = offset + limit < uploads.length;
 
     return {
-      uploads: paginatedUploads.map((u) => toBFFUpload(u, currentDeviceId)),
+      // Legacy format doesn't store userId, use deviceId as fallback
+      uploads: paginatedUploads.map((u) => toBFFUpload(u, currentDeviceId, currentDeviceId)),
       nextCursor: hasMore ? String(offset + limit) : undefined,
       totalCount: uploads.length,
     };
@@ -156,7 +158,8 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
     const hasMore = offset + limit < filtered.length;
 
     return {
-      uploads: paginatedUploads.map((u) => toBFFUpload(u, deviceId)),
+      // Legacy format doesn't store userId, use deviceId as fallback
+      uploads: paginatedUploads.map((u) => toBFFUpload(u, deviceId, deviceId)),
       nextCursor: hasMore ? String(offset + limit) : undefined,
       totalCount: filtered.length,
     };
@@ -165,7 +168,8 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
   async getAll(): Promise<BFFUpload[]> {
     const uploads = await this.loadUploads();
     const deviceId = await this.ensureDeviceId();
-    return uploads.map((u) => toBFFUpload(u, deviceId));
+    // Legacy format doesn't store userId, use deviceId as fallback
+    return uploads.map((u) => toBFFUpload(u, deviceId, deviceId));
   }
 
   // ============ Update ============
@@ -191,7 +195,8 @@ export class LocalUploadRepository extends BaseLocalRepository implements IUploa
     uploads[index] = updatedUpload;
     await this.saveUploads(uploads);
 
-    return toBFFUpload(updatedUpload, deviceId);
+    // Legacy format doesn't store userId, use deviceId as fallback
+    return toBFFUpload(updatedUpload, deviceId, deviceId);
   }
 
   async updateVoteCount(id: string, delta: number): Promise<number> {

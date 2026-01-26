@@ -52,7 +52,7 @@ export class SyncService {
 
   constructor(config: SyncServiceConfig) {
     this.config = config;
-    this.uploadService = getUploadService({ deviceId: config.deviceId });
+    this.uploadService = getUploadService();
     this.voteService = getVoteService({ deviceId: config.deviceId });
   }
 

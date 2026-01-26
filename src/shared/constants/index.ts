@@ -148,6 +148,14 @@ export const BFF_STORAGE_KEYS = {
   MIGRATION_STATUS: "unum_migration_status",
 };
 
+// ============ Auth Storage Keys ============
+export const AUTH_STORAGE_KEYS = {
+  /** Apple user ID (stored in SecureStore) */
+  APPLE_USER_ID: 'unum_apple_user_id',
+  /** User profile data (stored in AsyncStorage) */
+  USER_PROFILE: 'unum_user_profile',
+};
+
 // ============ Migration Configuration ============
 export const MIGRATION_CONFIG = {
   CURRENT_VERSION: 1,
