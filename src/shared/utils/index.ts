@@ -4,3 +4,5 @@ export * from './storage';
 export * from './coordinates';
 export * from './votes';
 export * from './errors';
+export * from './styles';
+export * from './debug';

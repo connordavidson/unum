@@ -59,9 +59,106 @@ export function calculateRadius(uploads: Upload[], center: Coordinates): number 
 }
 
 /**
+ * Convert meters to approximate degrees at a given latitude
+ * (Used for grid cell sizing)
+ */
+function metersToDegrees(meters: number, latitude: number): { lat: number; lon: number } {
+  const latDegrees = meters / 111320; // ~111.32 km per degree latitude
+  const lonDegrees = meters / (111320 * Math.cos((latitude * Math.PI) / 180));
+  return { lat: latDegrees, lon: lonDegrees };
+}
+
+/**
+ * Get grid cell key for a coordinate
+ */
+function getGridCell(coord: Coordinates, cellSize: { lat: number; lon: number }): string {
+  const cellLat = Math.floor(coord[0] / cellSize.lat);
+  const cellLon = Math.floor(coord[1] / cellSize.lon);
+  return `${cellLat},${cellLon}`;
+}
+
+/**
+ * Get all adjacent cell keys (including the cell itself)
+ */
+function getAdjacentCells(cellKey: string): string[] {
+  const [cellLat, cellLon] = cellKey.split(',').map(Number);
+  const cells: string[] = [];
+  for (let dLat = -1; dLat <= 1; dLat++) {
+    for (let dLon = -1; dLon <= 1; dLon++) {
+      cells.push(`${cellLat + dLat},${cellLon + dLon}`);
+    }
+  }
+  return cells;
+}
+
+/**
+ * Build a spatial index (grid) for efficient neighbor lookup
+ * Complexity: O(n) to build
+ */
+function buildSpatialIndex(
+  uploads: Upload[],
+  cellSize: { lat: number; lon: number }
+): Map<string, Upload[]> {
+  const grid = new Map<string, Upload[]>();
+
+  for (const upload of uploads) {
+    const cellKey = getGridCell(upload.coordinates, cellSize);
+    if (!grid.has(cellKey)) {
+      grid.set(cellKey, []);
+    }
+    grid.get(cellKey)!.push(upload);
+  }
+
+  return grid;
+}
+
+/**
+ * Find nearby uploads using spatial index
+ * Only checks uploads in adjacent grid cells
+ */
+function findNearbyUploads(
+  upload: Upload,
+  grid: Map<string, Upload[]>,
+  cellSize: { lat: number; lon: number },
+  visited: Set<string>,
+  thresholdMeters: number
+): Upload[] {
+  const cellKey = getGridCell(upload.coordinates, cellSize);
+  const adjacentCells = getAdjacentCells(cellKey);
+
+  const nearby: Upload[] = [];
+
+  for (const adjCellKey of adjacentCells) {
+    const cellUploads = grid.get(adjCellKey);
+    if (!cellUploads) continue;
+
+    for (const other of cellUploads) {
+      if (visited.has(other.id)) continue;
+      if (getDistanceMeters(upload.coordinates, other.coordinates) <= thresholdMeters) {
+        nearby.push(other);
+      }
+    }
+  }
+
+  return nearby;
+}
+
+/**
  * Group uploads into clusters based on proximity
+ * Uses grid-based spatial indexing for O(n) average case instead of O(n²)
  */
 export function clusterUploads(uploads: Upload[]): ClusterResult {
+  if (uploads.length === 0) {
+    return { largeClusters: [], smallClusters: [], unclustered: [] };
+  }
+
+  // Calculate average latitude for degree conversion
+  const avgLat = uploads.reduce((sum, u) => sum + u.coordinates[0], 0) / uploads.length;
+  const cellSize = metersToDegrees(CLUSTER_CONFIG.THRESHOLD_METERS, avgLat);
+
+  // Build spatial index
+  const grid = buildSpatialIndex(uploads, cellSize);
+
   const visited = new Set<string>();
   const largeClusters: Cluster[] = [];
   const smallClusters: Cluster[] = [];
@@ -70,12 +167,13 @@ export function clusterUploads(uploads: Upload[]): ClusterResult {
   for (const upload of uploads) {
     if (visited.has(upload.id)) continue;
 
-    // Find all uploads within threshold distance
-    const nearby = uploads.filter(
-      (other) =>
-        !visited.has(other.id) &&
-        getDistanceMeters(upload.coordinates, other.coordinates) <=
-          CLUSTER_CONFIG.THRESHOLD_METERS
+    // Find all uploads within threshold distance using spatial index
+    const nearby = findNearbyUploads(
+      upload,
+      grid,
+      cellSize,
+      visited,
+      CLUSTER_CONFIG.THRESHOLD_METERS
     );
 
     if (nearby.length >= CLUSTER_CONFIG.MIN_FOR_CIRCLE) {

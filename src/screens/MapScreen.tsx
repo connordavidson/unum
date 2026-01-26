@@ -119,18 +119,17 @@ export function MapScreen({ navigation }: MapScreenProps) {
     bottomSheetRef.current?.snapToIndex(0);
   }, []);
 
-  // Show loading state while getting location
-  if (locationLoading || !position) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={COLORS.PRIMARY} />
-      </View>
-    );
-  }
+  // Show loading state while getting location (but still render buttons)
+  const isLoading = locationLoading || !position;
 
   return (
     <View style={styles.container}>
-      <MapView
+      {isLoading ? (
+        <View style={[styles.map, styles.loadingContainer]}>
+          <ActivityIndicator size="large" color={COLORS.PRIMARY} />
+        </View>
+      ) : (
+        <MapView
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
@@ -209,7 +208,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
               </Marker>
             );
           })}
-      </MapView>
+        </MapView>
+      )}
 
       {/* Search button */}
       <TouchableOpacity
@@ -270,16 +270,18 @@ export function MapScreen({ navigation }: MapScreenProps) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Feed bottom sheet */}
-      <FeedPanel
-        uploads={visibleUploads}
-        userVotes={userVotes}
-        onVote={handleVote}
-        onVisibleItemsChange={handleVisibleItemsChange}
-        bottomSheetRef={bottomSheetRef}
-        onRefresh={handleRefresh}
-        isRefreshing={isRefreshing}
-      />
+      {/* Feed bottom sheet - only show when map is ready */}
+      {!isLoading && (
+        <FeedPanel
+          uploads={visibleUploads}
+          userVotes={userVotes}
+          onVote={handleVote}
+          onVisibleItemsChange={handleVisibleItemsChange}
+          bottomSheetRef={bottomSheetRef}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+        />
+      )}
     </View>
   );
 }

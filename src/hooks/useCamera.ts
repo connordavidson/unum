@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { CAMERA_CONFIG } from '../shared/constants';
+import { useGestureCapture } from './useGestureCapture';
 
 interface UseCameraResult {
   // Permissions
@@ -8,7 +9,6 @@ interface UseCameraResult {
   requestPermission: () => Promise<void>;
 
   // Camera state
-  isActive: boolean;
   facing: CameraType;
   isRecording: boolean;
   isCameraReady: boolean;
@@ -25,8 +25,6 @@ interface UseCameraResult {
   onCameraReady: () => void;
 
   // Actions
-  openCamera: () => void;
-  closeCamera: () => void;
   flipCamera: () => void;
   takePhoto: () => Promise<void>;
   startRecording: () => Promise<void>;
@@ -41,7 +39,6 @@ interface UseCameraResult {
 
 export function useCamera(): UseCameraResult {
   const [permission, requestPermissionAsync] = useCameraPermissions();
-  const [isActive, setIsActive] = useState(false);
   const [facing, setFacing] = useState<CameraType>('back');
   const [isRecording, setIsRecording] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
@@ -55,8 +52,6 @@ export function useCamera(): UseCameraResult {
   }, []);
 
   const cameraRef = useRef<CameraView>(null);
-  const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isHoldingRef = useRef(false);
   const isRecordingRef = useRef(false);
 
   // Keep ref in sync with state for use in callbacks
@@ -70,19 +65,6 @@ export function useCamera(): UseCameraResult {
     await requestPermissionAsync();
   }, [requestPermissionAsync]);
 
-  const openCamera = useCallback(() => {
-    setIsActive(true);
-    setCapturedPhoto(null);
-    setRecordedVideo(null);
-  }, []);
-
-  const closeCamera = useCallback(() => {
-    setIsActive(false);
-    setCapturedPhoto(null);
-    setRecordedVideo(null);
-    setIsRecording(false);
-  }, []);
-
   const flipCamera = useCallback(() => {
     if (isRecording) return;
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
@@ -95,7 +77,7 @@ export function useCamera(): UseCameraResult {
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
+        quality: CAMERA_CONFIG.PHOTO_QUALITY,
         base64: false,
       });
 
@@ -114,7 +96,7 @@ export function useCamera(): UseCameraResult {
 
     try {
       const video = await cameraRef.current.recordAsync({
-        maxDuration: 60,
+        maxDuration: CAMERA_CONFIG.MAX_VIDEO_DURATION,
       });
 
       if (video?.uri) {
@@ -145,38 +127,22 @@ export function useCamera(): UseCameraResult {
     setZoomState(0);
   }, []);
 
-  // Tap for photo, hold for video
-  const handlePressIn = useCallback(() => {
-    isHoldingRef.current = true;
-
-    holdTimerRef.current = setTimeout(() => {
-      if (isHoldingRef.current) {
-        startRecording();
+  // Use gesture capture hook for tap/hold discrimination
+  const { handlePressIn, handlePressOut } = useGestureCapture({
+    onTap: takePhoto,
+    onHoldStart: startRecording,
+    onHoldEnd: () => {
+      // Use ref to check if actually recording (avoids stale closure)
+      if (isRecordingRef.current) {
+        stopRecording();
       }
-    }, CAMERA_CONFIG.HOLD_DELAY_MS);
-  }, [startRecording]);
-
-  const handlePressOut = useCallback(() => {
-    const wasHolding = isHoldingRef.current;
-    isHoldingRef.current = false;
-
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-
-    // Use ref to get current recording state (avoids stale closure)
-    if (isRecordingRef.current) {
-      stopRecording();
-    } else if (wasHolding) {
-      takePhoto();
-    }
-  }, [stopRecording, takePhoto]);
+    },
+    enabled: isCameraReady,
+  });
 
   return {
     permission,
     requestPermission,
-    isActive,
     facing,
     isRecording,
     isCameraReady,
@@ -185,8 +151,6 @@ export function useCamera(): UseCameraResult {
     recordedVideo,
     cameraRef,
     onCameraReady,
-    openCamera,
-    closeCamera,
     flipCamera,
     takePhoto,
     startRecording,
