@@ -196,25 +196,29 @@ describe('UploadDataProvider', () => {
       consoleSpy.mockRestore();
     });
 
-    it('should sort uploads by timestamp descending', async () => {
+    it('should rank uploads by time-decay algorithm (recent and upvoted first)', async () => {
+      const now = new Date();
+      const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
+      const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
       const mockUploads = [
         {
-          id: 'older',
+          id: 'older-low-votes',
           type: 'photo',
           mediaKey: 'uploads/older.jpg',
           latitude: 37.7749,
           longitude: -122.4194,
-          timestamp: '2024-01-01T00:00:00.000Z',
-          voteCount: 0,
+          timestamp: dayAgo,
+          voteCount: 2,
         },
         {
-          id: 'newer',
+          id: 'newer-high-votes',
           type: 'photo',
           mediaKey: 'uploads/newer.jpg',
           latitude: 37.7850,
           longitude: -122.4094,
-          timestamp: '2024-01-02T00:00:00.000Z',
-          voteCount: 0,
+          timestamp: sixHoursAgo,
+          voteCount: 10,
         },
       ];
 
@@ -224,8 +228,9 @@ describe('UploadDataProvider', () => {
 
       const result = await provider.getAll('user-123');
 
-      expect(result[0].id).toBe('newer');
-      expect(result[1].id).toBe('older');
+      // Newer post with more votes should rank first
+      expect(result[0].id).toBe('newer-high-votes');
+      expect(result[1].id).toBe('older-low-votes');
     });
 
     it('should filter out uploads with empty media URLs', async () => {

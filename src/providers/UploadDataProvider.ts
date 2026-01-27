@@ -9,6 +9,7 @@ import { FEATURE_FLAGS, API_CONFIG } from '../shared/constants';
 import { TEST_UPLOADS } from '../data/testUploads';
 import { getAllUploads, getUserVotesMap } from '../api/clients/dynamodb.client';
 import { getMediaService } from '../services/media.service';
+import { rankUploads } from '../shared/utils/ranking';
 import type { Upload, BoundingBox, VoteType } from '../shared/types';
 
 class UploadDataProvider {
@@ -50,10 +51,8 @@ class UploadDataProvider {
       uploads = this.merge(uploads, testData);
     }
 
-    // Sort by timestamp descending
-    uploads.sort((a, b) =>
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
+    // Rank by time-decay algorithm (recent + upvoted first, downvoted sinks)
+    uploads = rankUploads(uploads);
 
     // Cache result
     this.cache = uploads;

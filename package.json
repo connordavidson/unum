@@ -9,7 +9,11 @@
     "web": "expo start --web",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "seed": "npx ts-node --project scripts/tsconfig.json scripts/seedUploads.ts",
+    "seed:upvotes": "npx ts-node --project scripts/tsconfig.json scripts/simulateUpvotes.ts",
+    "seed:downvotes": "npx ts-node --project scripts/tsconfig.json scripts/simulateDownvotes.ts",
+    "seed:cleanup": "npx ts-node --project scripts/tsconfig.json scripts/cleanupSeeds.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.975.0",
@@ -47,6 +51,8 @@
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
+    "react-native-worklets": "^0.5.0",
+    "react-refresh": "^0.18.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
@@ -65,6 +71,7 @@
     "jest-expo": "^54.0.16",
     "react-test-renderer": "^19.2.4",
     "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
     "typescript": "~5.9.2"
   },
   "private": true
