@@ -66,6 +66,13 @@ export function useUploadData(): UseUploadDataResult {
 
   // Create upload - uses existing services
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {
+    console.log('[useUploadData] ========== createUpload START ==========');
+    console.log('[useUploadData] USE_AWS_BACKEND:', FEATURE_FLAGS.USE_AWS_BACKEND);
+    console.log('[useUploadData] uploadData:', JSON.stringify(uploadData, null, 2));
+    console.log('[useUploadData] uploadData.coordinates:', JSON.stringify(uploadData.coordinates));
+    console.log('[useUploadData] uploadData.type:', uploadData.type);
+    console.log('[useUploadData] uploadData.data:', uploadData.data);
+
     const currentUserId = userIdRef.current || userId;
 
     if (FEATURE_FLAGS.USE_AWS_BACKEND) {
@@ -99,11 +106,14 @@ export function useUploadData(): UseUploadDataResult {
       const mediaSvc = getMediaService({ useRemote: true });
       const uploadId = Crypto.randomUUID();
 
-      // Upload media to S3
+      // Upload media to S3 (with EXIF metadata for photos)
       const mediaResult = await mediaSvc.upload({
         localPath: uploadData.data,
         uploadId,
         mediaType: uploadData.type,
+        coordinates: uploadData.coordinates,
+        timestamp: new Date().toISOString(),
+        uploaderId: finalUserId,
       });
 
       // Create upload record in DynamoDB

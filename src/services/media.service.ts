@@ -6,7 +6,8 @@
  */
 
 import { FEATURE_FLAGS } from '../shared/constants';
-import type { MediaType } from '../shared/types';
+import type { MediaType, Coordinates } from '../shared/types';
+import { writeUploadExif } from './exif.service';
 import {
   getLocalMediaRepository,
   LocalMediaRepository,
@@ -31,6 +32,9 @@ export interface UploadMediaParams {
   localPath: string;
   uploadId: string;
   mediaType: MediaType;
+  coordinates?: Coordinates;
+  timestamp?: string;
+  uploaderId?: string;
   onProgress?: UploadProgressCallback;
 }
 
@@ -69,15 +73,40 @@ export class MediaService {
    * Always caches locally, uploads to S3 if remote is enabled
    */
   async upload(params: UploadMediaParams): Promise<MediaUploadResult> {
-    const { localPath, uploadId, mediaType, onProgress } = params;
+    const { localPath, uploadId, mediaType, coordinates, timestamp, uploaderId, onProgress } = params;
 
-    console.log('[MediaService] upload() called');
+    console.log('[MediaService] ========== upload() START ==========');
     console.log('[MediaService] useRemote:', this.useRemote);
     console.log('[MediaService] localPath:', localPath);
+    console.log('[MediaService] mediaType:', mediaType);
+    console.log('[MediaService] coordinates:', JSON.stringify(coordinates));
+    console.log('[MediaService] timestamp:', timestamp);
+    console.log('[MediaService] uploaderId:', uploaderId);
+
+    // Embed EXIF metadata for photos before upload
+    let processedPath = localPath;
+    if (mediaType === 'photo' && coordinates) {
+      console.log('[MediaService] Writing EXIF metadata to photo...');
+      console.log('[MediaService] Coordinates for EXIF:', coordinates[0], coordinates[1]);
+      try {
+        processedPath = await writeUploadExif(
+          localPath,
+          coordinates,
+          timestamp || new Date().toISOString(),
+          uploaderId || 'unknown'
+        );
+        console.log('[MediaService] EXIF write complete, new path:', processedPath);
+      } catch (exifError) {
+        console.error('[MediaService] EXIF write failed:', exifError);
+        // Continue with original path
+      }
+    } else {
+      console.log('[MediaService] Skipping EXIF - isPhoto:', mediaType === 'photo', 'hasCoords:', !!coordinates);
+    }
 
     // Always cache locally first
     const localResult = await this.localRepo.upload(
-      localPath,
+      processedPath,
       uploadId,
       mediaType,
       (progress) => {
@@ -102,7 +131,7 @@ export class MediaService {
     // For production offline-first behavior, wrap in try/catch and return localResult.
     console.log('[MediaService] Uploading to S3...');
     const remoteResult = await this.remoteRepo.upload(
-      localPath,
+      processedPath,
       uploadId,
       mediaType,
       (progress) => {

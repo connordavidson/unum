@@ -135,9 +135,10 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, [uploads]);
 
   // Create download handler using the convenience wrapper
+  // Pass the authenticated user's ID to embed in EXIF metadata
   const handleDownload = useMemo(
-    () => createDownloadHandler(uploadsById),
-    [createDownloadHandler, uploadsById]
+    () => createDownloadHandler(uploadsById, auth.user?.id),
+    [createDownloadHandler, uploadsById, auth.user?.id]
   );
 
   // Track which items are visible in the feed
