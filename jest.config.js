@@ -14,6 +14,8 @@ module.exports = {
     '^expo-apple-authentication$': '<rootDir>/__mocks__/expo-apple-authentication.js',
     '^react-native-reanimated$': '<rootDir>/__mocks__/react-native-reanimated.js',
     '^@react-native-async-storage/async-storage$': '<rootDir>/__mocks__/async-storage.js',
+    '^@react-native-firebase/crashlytics$': '<rootDir>/__mocks__/@react-native-firebase/crashlytics.js',
+    '^@react-native-firebase/analytics$': '<rootDir>/__mocks__/@react-native-firebase/analytics.js',
   },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
