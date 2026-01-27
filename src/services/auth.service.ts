@@ -8,7 +8,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { AUTH_STORAGE_KEYS, FEATURE_FLAGS } from '../shared/constants';
 import { getStoredJSON, setStoredJSON } from '../shared/utils';
-import { upsertUser } from '../api/clients/dynamodb.client';
+import { upsertUser, getUserById } from '../api/clients/dynamodb.client';
 import type { AuthUser, StoredAuthData } from '../shared/types/auth';
 
 // ============ Types ============
@@ -126,12 +126,39 @@ export async function signInWithApple(): Promise<SignInResult> {
 
     // Store profile locally (only if we got new data, otherwise keep existing)
     const existingProfile = await getStoredUserProfile();
-    const newProfile = {
+    let newProfile = {
       email: credential.email || existingProfile?.email || null,
       displayName: displayName || existingProfile?.displayName || null,
       givenName: credential.fullName?.givenName || existingProfile?.givenName || null,
       familyName: credential.fullName?.familyName || existingProfile?.familyName || null,
     };
+
+    // Fetch user data from DynamoDB to get any previously stored profile info
+    // (Apple only provides name on first sign-in, so we need DynamoDB for returning users)
+    if (FEATURE_FLAGS.USE_AWS_BACKEND) {
+      try {
+        console.log('[AuthService] Fetching user data from DynamoDB...');
+        const dbUser = await getUserById(credential.user);
+        if (dbUser) {
+          console.log('[AuthService] Found existing user in DynamoDB:', {
+            displayName: dbUser.displayName,
+            givenName: dbUser.givenName,
+            familyName: dbUser.familyName,
+          });
+          // Merge DynamoDB data with Apple data (Apple data takes precedence if available)
+          newProfile = {
+            email: credential.email || dbUser.email || newProfile.email,
+            displayName: displayName || dbUser.displayName || newProfile.displayName,
+            givenName: credential.fullName?.givenName || dbUser.givenName || newProfile.givenName,
+            familyName: credential.fullName?.familyName || dbUser.familyName || newProfile.familyName,
+          };
+        }
+      } catch (dbError) {
+        console.error('[AuthService] Failed to fetch user from DynamoDB:', dbError);
+        // Continue with local/Apple data
+      }
+    }
+
     await storeUserProfile(newProfile);
 
     // Store user in DynamoDB (if AWS backend is enabled)
@@ -200,6 +227,7 @@ export async function signOut(): Promise<void> {
 /**
  * Load stored authentication state
  * Returns the user if valid credentials exist, null otherwise
+ * Fetches from DynamoDB if local cache is missing user data
  */
 export async function loadStoredAuth(): Promise<AuthUser | null> {
   try {
@@ -216,8 +244,36 @@ export async function loadStoredAuth(): Promise<AuthUser | null> {
       return null;
     }
 
-    // Load profile data
-    const profile = await getStoredUserProfile();
+    // Load profile data from local cache
+    let profile = await getStoredUserProfile();
+
+    // If displayName is missing, try to fetch from DynamoDB
+    if (!profile?.displayName && FEATURE_FLAGS.USE_AWS_BACKEND) {
+      console.log('[AuthService] Display name missing, fetching from DynamoDB...');
+      try {
+        const dbUser = await getUserById(userId);
+        if (dbUser) {
+          console.log('[AuthService] Found user in DynamoDB:', {
+            displayName: dbUser.displayName,
+            givenName: dbUser.givenName,
+            familyName: dbUser.familyName,
+          });
+
+          // Update local cache with DynamoDB data
+          const updatedProfile = {
+            email: dbUser.email || profile?.email || null,
+            displayName: dbUser.displayName || profile?.displayName || null,
+            givenName: dbUser.givenName || profile?.givenName || null,
+            familyName: dbUser.familyName || profile?.familyName || null,
+          };
+          await storeUserProfile(updatedProfile);
+          profile = updatedProfile;
+        }
+      } catch (dbError) {
+        console.error('[AuthService] Failed to fetch user from DynamoDB:', dbError);
+        // Continue with local profile data
+      }
+    }
 
     return {
       id: userId,
