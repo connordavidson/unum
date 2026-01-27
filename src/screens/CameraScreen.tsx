@@ -23,6 +23,7 @@ import { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
+import { useAnalytics } from '../hooks/useAnalytics';
 import { COLORS, BUTTON_SIZES, CAMERA_CONFIG } from '../shared/constants';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -53,6 +54,28 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     handlePressIn,
     handlePressOut,
   } = useCamera();
+
+  // Analytics
+  const { trackScreen, trackUpload, track } = useAnalytics();
+
+  // Track screen view on mount
+  useEffect(() => {
+    trackScreen('Camera');
+  }, [trackScreen]);
+
+  // Track photo capture
+  useEffect(() => {
+    if (capturedPhoto) {
+      track('photo_capture');
+    }
+  }, [capturedPhoto, track]);
+
+  // Track video recording completion
+  useEffect(() => {
+    if (recordedVideo) {
+      track('video_record');
+    }
+  }, [recordedVideo, track]);
 
   // Shared values for vertical slide-to-zoom
   const isRecordingShared = useSharedValue(false);
@@ -193,17 +216,24 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     const mediaUri = getMediaUri();
     if (!position || !mediaUri) return;
 
+    const mediaType = getMediaType();
+    const hasCaption = caption.trim().length > 0;
+
     setIsUploading(true);
+    trackUpload('start', { media_type: mediaType, has_caption: hasCaption });
+
     try {
       await createUpload({
-        type: getMediaType(),
+        type: mediaType,
         data: mediaUri,
         coordinates: [position.latitude, position.longitude],
         caption: caption.trim() || undefined,
       });
+      trackUpload('complete', { media_type: mediaType, has_caption: hasCaption });
       navigation.goBack();
     } catch (error) {
       console.error('Upload failed:', error);
+      trackUpload('fail', { media_type: mediaType, has_caption: hasCaption });
     } finally {
       setIsUploading(false);
     }

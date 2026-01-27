@@ -22,6 +22,7 @@ import { useAuthContext } from '../contexts/AuthContext';
 import { useMapState } from '../hooks/useMapState';
 import { useDownload } from '../hooks/useDownload';
 import { useMapSearch } from '../hooks/useMapSearch';
+import { useAnalytics } from '../hooks/useAnalytics';
 import { FeedPanel } from '../components/FeedPanel';
 import { MarkerCallout } from '../components/MarkerCallout';
 import { ProfileDrawer } from '../components/ProfileDrawer';
@@ -49,8 +50,14 @@ export function MapScreen({ navigation }: MapScreenProps) {
     setSearchQuery,
     searching,
     searchError,
-    handleSearch,
+    handleSearch: handleSearchBase,
   } = useMapSearch({ mapRef });
+
+  // Analytics-wrapped search handler
+  const handleSearch = useCallback(() => {
+    trackSearch();
+    handleSearchBase();
+  }, [handleSearchBase, trackSearch]);
 
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -58,6 +65,14 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   // Auth state for gating camera access
   const { auth } = useAuthContext();
+
+  // Analytics
+  const { trackScreen, trackVote, trackSearch, track } = useAnalytics();
+
+  // Track screen view on mount
+  useEffect(() => {
+    trackScreen('Map');
+  }, [trackScreen]);
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
   // Calculate bounding box from position to fetch AWS data
@@ -108,6 +123,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
   // Handle pull-to-refresh in feed
   const handleRefresh = useCallback(async () => {
     console.log('[MapScreen] Pull-to-refresh triggered');
+    track('feed_refresh');
     setIsRefreshing(true);
     try {
       // Calculate bounding box from current region
@@ -125,7 +141,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
       setIsRefreshing(false);
       console.log('[MapScreen] Refresh complete');
     }
-  }, [refreshUploads, handleRegionChange, region]);
+  }, [refreshUploads, handleRegionChange, region, track]);
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {
@@ -195,9 +211,16 @@ export function MapScreen({ navigation }: MapScreenProps) {
         }
         return;
       }
+      // Track vote
+      const previousVote = userVotes[uploadId];
+      if (previousVote === voteType) {
+        trackVote('remove', { vote_type: voteType });
+      } else {
+        trackVote('cast', { vote_type: voteType });
+      }
       handleVote(uploadId, voteType);
     },
-    [auth.isAuthenticated, auth.isAppleSignInAvailable, navigation, handleVote]
+    [auth.isAuthenticated, auth.isAppleSignInAvailable, navigation, handleVote, userVotes, trackVote]
   );
 
   // Show loading state while getting location (but still render buttons)
