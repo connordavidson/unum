@@ -26,7 +26,15 @@
       "Bash(git checkout:*)",
       "Bash(perl -i -pe:*)",
       "Bash(find:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(gh pr create:*)",
+      "WebFetch(domain:docs.expo.dev)",
+      "Bash(npm search:*)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(npm test:*)",
+      "Bash(npm ls:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git fetch:*)"
     ]
   }
 }
