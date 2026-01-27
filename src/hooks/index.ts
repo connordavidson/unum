@@ -5,3 +5,4 @@ export { useMapState } from './useMapState';
 export { useAuth } from './useAuth';
 export { useUserIdentity } from './useUserIdentity';
 export { useDeviceIdentity } from './useDeviceIdentity';
+export { useAppLock } from './useAppLock';

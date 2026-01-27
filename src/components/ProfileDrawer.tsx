@@ -4,7 +4,7 @@
  * Slides in from the left to show user info and sign out option.
  */
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,11 +14,20 @@ import {
   Animated,
   Dimensions,
   Alert,
+  Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS } from '../shared/constants';
 import type { AuthUser } from '../shared/types/auth';
+import {
+  getBiometricStatus,
+  getBiometricName,
+  isBiometricLockEnabled,
+  setBiometricLockEnabled,
+  authenticate,
+  BiometricType,
+} from '../services/biometric.service';
 
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.75;
 
@@ -37,6 +46,61 @@ export function ProfileDrawer({
 }: ProfileDrawerProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const slideAnim = React.useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+
+  // Biometric state
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricType, setBiometricType] = useState<BiometricType>('none');
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [isTogglingBiometric, setIsTogglingBiometric] = useState(false);
+
+  // Load biometric status when drawer opens
+  useEffect(() => {
+    if (visible) {
+      loadBiometricStatus();
+    }
+  }, [visible]);
+
+  const loadBiometricStatus = async () => {
+    const status = await getBiometricStatus();
+    setBiometricAvailable(status.isAvailable);
+    setBiometricType(status.biometricType);
+
+    const enabled = await isBiometricLockEnabled();
+    setBiometricEnabled(enabled);
+  };
+
+  const handleBiometricToggle = useCallback(async (value: boolean) => {
+    if (isTogglingBiometric) return;
+
+    setIsTogglingBiometric(true);
+
+    try {
+      if (value) {
+        // Require authentication to enable
+        const result = await authenticate(`Enable ${getBiometricName(biometricType)}`);
+        if (result.success) {
+          await setBiometricLockEnabled(true);
+          setBiometricEnabled(true);
+        } else if (result.error && result.error !== 'Authentication cancelled') {
+          Alert.alert('Error', result.error);
+        }
+      } else {
+        // Require authentication to disable
+        const result = await authenticate(`Disable ${getBiometricName(biometricType)}`);
+        if (result.success) {
+          await setBiometricLockEnabled(false);
+          setBiometricEnabled(false);
+        } else if (result.error && result.error !== 'Authentication cancelled') {
+          Alert.alert('Error', result.error);
+        }
+      }
+    } catch (error) {
+      console.error('[ProfileDrawer] Failed to toggle biometric:', error);
+      Alert.alert('Error', 'Failed to update setting');
+    } finally {
+      setIsTogglingBiometric(false);
+    }
+  }, [biometricType, isTogglingBiometric]);
 
   React.useEffect(() => {
     Animated.timing(slideAnim, {
@@ -107,7 +171,29 @@ export function ProfileDrawer({
 
         {/* Menu Items */}
         <View style={styles.menu}>
-          {/* Future menu items can go here */}
+          {/* Biometric Lock Toggle */}
+          {biometricAvailable && (
+            <View style={styles.menuItem}>
+              <View style={styles.menuItemLeft}>
+                <Ionicons
+                  name={biometricType === 'face' ? 'scan-outline' : 'finger-print-outline'}
+                  size={24}
+                  color={COLORS.TEXT_PRIMARY}
+                />
+                <Text style={styles.menuItemText}>
+                  Require {getBiometricName(biometricType)}
+                </Text>
+              </View>
+              <Switch
+                value={biometricEnabled}
+                onValueChange={handleBiometricToggle}
+                disabled={isTogglingBiometric}
+                trackColor={{ false: COLORS.BORDER, true: COLORS.PRIMARY }}
+                thumbColor={COLORS.BACKGROUND}
+                ios_backgroundColor={COLORS.BORDER}
+              />
+            </View>
+          )}
         </View>
 
         {/* Sign Out Button */}
@@ -173,6 +259,22 @@ const styles = StyleSheet.create({
   menu: {
     flex: 1,
     paddingTop: 16,
+    paddingHorizontal: 24,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  menuItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: COLORS.TEXT_PRIMARY,
   },
   footer: {
     paddingHorizontal: 24,
