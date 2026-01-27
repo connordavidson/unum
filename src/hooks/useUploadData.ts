@@ -7,7 +7,7 @@
  * Composes useDeviceIdentity and useVoting for identity and voting.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import * as Crypto from 'expo-crypto';
 import { FEATURE_FLAGS } from '../shared/constants';
 import { getUploadDataProvider } from '../providers/UploadDataProvider';
@@ -34,35 +34,42 @@ export function useUploadData(): UseUploadDataResult {
 
   // Compose existing hooks
   const { userId, userIdRef, deviceId, deviceIdRef } = useUserIdentity();
-  const { userVotes, handleVote: baseHandleVote, loadUserVotes } = useVoting();
+  const { handleVote: baseHandleVote, isVoting } = useVoting({ userId: userId || undefined });
+
+  // Derive userVotes from uploads' userVote property
+  const userVotes = useMemo(() => {
+    const votes: Record<string, VoteType> = {};
+    for (const upload of uploads) {
+      if (upload.userVote) {
+        votes[upload.id] = upload.userVote;
+      }
+    }
+    return votes;
+  }, [uploads]);
 
   // Get singleton provider
   const provider = getUploadDataProvider();
 
-  // Initial load - just load votes, data comes from refreshUploads
+  // Initial load
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      await loadUserVotes();
-      setLoading(false);
-    };
-    init();
-  }, [loadUserVotes]);
+    setLoading(false);
+  }, []);
 
   // Refresh uploads - delegates entirely to provider
   const refreshUploads = useCallback(async (bbox?: BoundingBox) => {
-    console.log('[useUploadData] refreshUploads called', { hasBbox: !!bbox });
+    const currentUserId = userIdRef.current || userId;
+    console.log('[useUploadData] refreshUploads called', { hasBbox: !!bbox, userId: currentUserId });
     try {
       const data = bbox
-        ? await provider.getInBounds(bbox)
-        : await provider.getAll();
+        ? await provider.getInBounds(bbox, currentUserId || undefined)
+        : await provider.getAll(currentUserId || undefined);
       setUploads(data);
       setError(null);
     } catch (err) {
       console.error('[useUploadData] Refresh failed:', err);
       setError('Failed to load uploads');
     }
-  }, [provider]);
+  }, [provider, userId, userIdRef]);
 
   // Create upload - uses existing services
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {

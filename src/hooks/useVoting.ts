@@ -1,65 +1,44 @@
 /**
  * useVoting Hook
  *
- * Manages user votes on uploads.
- * Handles local persistence and vote delta calculations.
+ * Manages user votes on uploads using individual vote items in DynamoDB.
+ * Vote items are the source of truth; voteCount on uploads is cached.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
-  getLocalVoteRepository,
-  LocalVoteRepository,
-} from '../repositories/local';
-import { calculateVoteDelta } from '../shared/utils/votes';
-import type { VoteType, UserVotes, Upload } from '../shared/types';
+  castVote,
+  removeVote,
+  getVoteCountForUpload,
+  type VoteResult,
+} from '../api/clients/dynamodb.client';
+import { FEATURE_FLAGS } from '../shared/constants';
+import type { VoteType, Upload } from '../shared/types';
 
 interface UseVotingResult {
-  /** Map of upload IDs to user's vote on each */
-  userVotes: UserVotes;
-  /** Handle a vote on an upload, returns the vote delta */
+  /** Handle a vote on an upload */
   handleVote: (
     uploadId: string,
     voteType: VoteType,
     currentUploads: Upload[],
     onUploadsChange: (uploads: Upload[]) => void
   ) => Promise<void>;
-  /** Load user votes from storage */
-  loadUserVotes: () => Promise<void>;
-  /** Save user votes to storage */
-  saveUserVotes: (votes: UserVotes) => Promise<void>;
+  /** Check if a vote operation is in progress */
+  isVoting: boolean;
 }
 
-export function useVoting(): UseVotingResult {
-  const [userVotes, setUserVotes] = useState<UserVotes>({});
-  const voteRepoRef = useRef<LocalVoteRepository | null>(null);
+interface UseVotingOptions {
+  userId?: string;
+}
 
-  const getVoteRepo = useCallback(() => {
-    if (!voteRepoRef.current) {
-      voteRepoRef.current = getLocalVoteRepository();
-    }
-    return voteRepoRef.current;
-  }, []);
+export function useVoting(options: UseVotingOptions = {}): UseVotingResult {
+  const [isVoting, setIsVoting] = useState(false);
+  const userIdRef = useRef(options.userId || '');
 
-  const loadUserVotes = useCallback(async () => {
-    try {
-      const repo = getVoteRepo();
-      const storedVotes = await repo.getUserVotesLegacy();
-      setUserVotes(storedVotes);
-    } catch (err) {
-      console.error('[useVoting] Failed to load user votes:', err);
-    }
-  }, [getVoteRepo]);
-
-  const saveUserVotes = useCallback(async (newVotes: UserVotes) => {
-    const repo = getVoteRepo();
-    await repo.saveUserVotesLegacy(newVotes);
-    setUserVotes(newVotes);
-  }, [getVoteRepo]);
-
-  // Load votes on mount
+  // Update userId ref when it changes
   useEffect(() => {
-    loadUserVotes();
-  }, [loadUserVotes]);
+    userIdRef.current = options.userId || '';
+  }, [options.userId]);
 
   const handleVote = useCallback(async (
     uploadId: string,
@@ -67,45 +46,68 @@ export function useVoting(): UseVotingResult {
     currentUploads: Upload[],
     onUploadsChange: (uploads: Upload[]) => void
   ) => {
-    try {
-      const currentVote = userVotes[uploadId];
-      let voteDelta = 0;
-      let newUserVotes = { ...userVotes };
+    const userId = userIdRef.current;
+    if (!userId) {
+      console.error('[useVoting] No user ID available - user must be signed in to vote');
+      return;
+    }
 
-      if (currentVote === voteType) {
-        // Remove vote
-        delete newUserVotes[uploadId];
-        voteDelta = calculateVoteDelta(currentVote, null);
-      } else if (currentVote) {
-        // Change vote
-        newUserVotes[uploadId] = voteType;
-        voteDelta = calculateVoteDelta(currentVote, voteType);
+    if (!FEATURE_FLAGS.USE_AWS_BACKEND) {
+      console.warn('[useVoting] AWS backend not enabled');
+      return;
+    }
+
+    setIsVoting(true);
+
+    try {
+      // Get current vote state from the upload
+      const upload = currentUploads.find(u => u.id === uploadId);
+      const currentVote = upload?.userVote;
+      let result: VoteResult;
+
+      if (voteType === 'up') {
+        if (currentVote === 'up') {
+          // Remove upvote
+          result = await removeVote(uploadId, userId);
+        } else {
+          // Add upvote (replaces downvote if present)
+          result = await castVote(uploadId, userId, 'up');
+        }
       } else {
-        // New vote
-        newUserVotes[uploadId] = voteType;
-        voteDelta = calculateVoteDelta(null, voteType);
+        // voteType === 'down'
+        if (currentVote === 'down') {
+          // Remove downvote
+          result = await removeVote(uploadId, userId);
+        } else {
+          // Add downvote (replaces upvote if present)
+          result = await castVote(uploadId, userId, 'down');
+        }
       }
 
-      // Update uploads with new vote count
-      const newUploads = currentUploads.map((upload) =>
-        upload.id === uploadId
-          ? { ...upload, votes: upload.votes + voteDelta }
-          : upload
+      // Update uploads with new vote count and user vote state from database
+      const newUploads = currentUploads.map((u) =>
+        u.id === uploadId
+          ? { ...u, votes: result.voteCount, userVote: result.userVote }
+          : u
       );
-
-      // Save both changes
-      await saveUserVotes(newUserVotes);
       onUploadsChange(newUploads);
+
+      console.log('[useVoting] Vote updated:', {
+        uploadId,
+        voteType,
+        newCount: result.voteCount,
+        userVote: result.userVote,
+      });
     } catch (err) {
       console.error('[useVoting] Failed to update vote:', err);
       throw err;
+    } finally {
+      setIsVoting(false);
     }
-  }, [userVotes, saveUserVotes]);
+  }, []);
 
   return {
-    userVotes,
     handleVote,
-    loadUserVotes,
-    saveUserVotes,
+    isVoting,
   };
 }

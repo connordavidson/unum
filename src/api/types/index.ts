@@ -72,22 +72,29 @@ export interface DynamoUploadItem {
   geohash: string;
   timestamp: string;
   caption?: string;
-  voteCount: number;
+  // Note: voteCount is kept for backwards compatibility but vote items are source of truth
+  // For true scale, use DynamoDB Streams + Lambda to aggregate vote counts asynchronously
+  voteCount?: number;
   userId: string;                // Apple user ID (authenticated user)
   deviceId: string;              // Device identifier
   createdAt: string;
   updatedAt: string;
 }
 
+/**
+ * Vote item - individual vote record
+ * Source of truth for votes. Vote counts should be derived from these items.
+ */
 export interface DynamoVoteItem {
   PK: string;                    // "UPLOAD#<uploadId>"
-  SK: string;                    // "VOTE#<deviceId>"
-  GSI1PK: string;                // "DEVICE#<deviceId>"
-  GSI1SK: string;                // "VOTE#<uploadId>"
+  SK: string;                    // "VOTE#<userId>"
+  GSI1PK: string;                // "USER#<userId>"
+  GSI1SK: string;                // "VOTE#<uploadId>#<timestamp>"
   uploadId: string;
-  deviceId: string;
+  userId: string;                // Apple user ID (voter)
   voteType: 'up' | 'down';
-  timestamp: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DynamoUserItem {

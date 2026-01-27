@@ -11,12 +11,12 @@ import {
   deleteVote as dynamoDeleteVote,
   getVotesForUpload as dynamoGetVotesForUpload,
   getVotesByDevice as dynamoGetVotesByDevice,
-  updateVoteCount,
   createUploadPK,
   createVoteSK,
-  createDeviceGSI1PK,
+  createUserGSI1PK,
+  getVoteCountForUpload,
 } from '../../api/clients/dynamodb.client';
-import { createVoteId, calculateVoteDelta } from '../../shared/utils/votes';
+import { createVoteId } from '../../shared/utils/votes';
 import type { VoteType } from '../../shared/types';
 import type {
   IVoteRepository,
@@ -29,31 +29,35 @@ import type { DynamoVoteItem } from '../../api/types';
 
 /**
  * Convert DynamoDB item to BFFVote
+ * Note: DynamoDB uses userId, BFFVote uses deviceId (legacy naming)
  */
 function fromDynamoItem(item: DynamoVoteItem): BFFVote {
   return {
-    id: createVoteId(item.uploadId, item.deviceId),
+    id: createVoteId(item.uploadId, item.userId),
     uploadId: item.uploadId,
-    deviceId: item.deviceId,
+    deviceId: item.userId, // Map userId -> deviceId for backwards compatibility
     voteType: item.voteType,
-    timestamp: item.timestamp,
+    timestamp: item.createdAt,
     syncStatus: 'synced',
   };
 }
 
 /**
  * Convert BFFVote to DynamoDB item
+ * Note: BFFVote uses deviceId, DynamoDB uses userId (legacy naming in BFFVote)
  */
 function toDynamoItem(vote: BFFVote): DynamoVoteItem {
+  const now = new Date().toISOString();
   return {
     PK: createUploadPK(vote.uploadId),
     SK: createVoteSK(vote.deviceId),
-    GSI1PK: createDeviceGSI1PK(vote.deviceId),
-    GSI1SK: `VOTE#${vote.uploadId}`,
+    GSI1PK: createUserGSI1PK(vote.deviceId), // deviceId is actually userId
+    GSI1SK: `VOTE#${vote.uploadId}#${now}`,
     uploadId: vote.uploadId,
-    deviceId: vote.deviceId,
+    userId: vote.deviceId, // Map deviceId -> userId
     voteType: vote.voteType,
-    timestamp: vote.timestamp,
+    createdAt: vote.timestamp,
+    updatedAt: now,
   };
 }
 
@@ -91,15 +95,9 @@ export class RemoteVoteRepository implements IVoteRepository {
       syncStatus: 'synced',
     };
 
-    // Save vote
+    // Save vote (vote items are source of truth - count is derived)
     const dynamoItem = toDynamoItem(vote);
     await dynamoUpsertVote(dynamoItem);
-
-    // Update upload vote count
-    const delta = calculateVoteDelta(previousVoteType, input.voteType);
-    if (delta !== 0) {
-      await updateVoteCount(input.uploadId, delta);
-    }
 
     return { vote, previousVoteType };
   }
@@ -135,7 +133,7 @@ export class RemoteVoteRepository implements IVoteRepository {
   // ============ Delete ============
 
   async remove(uploadId: string, deviceId: string): Promise<VoteType | null> {
-    // Get existing vote to determine delta
+    // Get existing vote
     const existingItem = await dynamoGetVote(uploadId, deviceId);
     if (!existingItem) {
       return null;
@@ -143,14 +141,8 @@ export class RemoteVoteRepository implements IVoteRepository {
 
     const previousVoteType = existingItem.voteType;
 
-    // Delete vote
+    // Delete vote (vote items are source of truth - count is derived)
     await dynamoDeleteVote(uploadId, deviceId);
-
-    // Update upload vote count
-    const delta = calculateVoteDelta(previousVoteType, null);
-    if (delta !== 0) {
-      await updateVoteCount(uploadId, delta);
-    }
 
     return previousVoteType;
   }
