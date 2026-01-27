@@ -44,7 +44,7 @@ function fromDynamoItem(item: DynamoUploadItem): BFFUpload {
     coordinates: [item.latitude, item.longitude] as Coordinates,
     timestamp: item.timestamp,
     caption: item.caption,
-    voteCount: item.voteCount,
+    voteCount: item.voteCount ?? 0,
     userId: item.userId,
     deviceId: item.deviceId,
     geohash: item.geohash,

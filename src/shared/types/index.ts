@@ -8,6 +8,7 @@ export interface Upload {
   timestamp: string;
   caption?: string;
   votes: number;
+  userVote?: VoteType | null;  // Current user's vote on this upload
 }
 
 export interface CreateUploadData {

@@ -67,6 +67,10 @@ export function createDeviceGSI1PK(deviceId: string): string {
   return `DEVICE#${deviceId}`;
 }
 
+export function createUserGSI1PK(userId: string): string {
+  return `USER#${userId}`;
+}
+
 export function createUserPK(userId: string): string {
   return `USER#${userId}`;
 }
@@ -320,9 +324,207 @@ export async function queryUploadsByDevice(
 }
 
 // ============ Vote Operations ============
+// Vote items are the source of truth. For scale, use DynamoDB Streams + Lambda
+// to aggregate vote counts asynchronously rather than atomic increments.
+
+export interface VoteResult {
+  voteCount: number;
+  userVote: 'up' | 'down' | null;
+}
 
 /**
- * Create or update a vote
+ * Cast or update a vote
+ * Creates/updates a vote item and returns the new vote count
+ */
+export async function castVote(
+  uploadId: string,
+  userId: string,
+  voteType: 'up' | 'down'
+): Promise<VoteResult> {
+  const now = new Date().toISOString();
+
+  const voteItem: DynamoVoteItem = {
+    PK: createUploadPK(uploadId),
+    SK: createVoteSK(userId),
+    GSI1PK: createUserGSI1PK(userId),
+    GSI1SK: `VOTE#${uploadId}#${now}`,
+    uploadId,
+    userId,
+    voteType,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await withRetry(async () => {
+    await docClient.send(
+      new PutCommand({
+        TableName: dynamoConfig.tableName,
+        Item: voteItem,
+      })
+    );
+  });
+
+  // Get updated vote count
+  const voteCount = await getVoteCountForUpload(uploadId);
+  return { voteCount, userVote: voteType };
+}
+
+/**
+ * Remove a vote
+ */
+export async function removeVote(
+  uploadId: string,
+  userId: string
+): Promise<VoteResult> {
+  await withRetry(async () => {
+    await docClient.send(
+      new DeleteCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUploadPK(uploadId),
+          SK: createVoteSK(userId),
+        },
+      })
+    );
+  });
+
+  // Get updated vote count
+  const voteCount = await getVoteCountForUpload(uploadId);
+  return { voteCount, userVote: null };
+}
+
+/**
+ * Get a user's vote on a specific upload
+ */
+export async function getUserVote(
+  uploadId: string,
+  userId: string
+): Promise<DynamoVoteItem | null> {
+  return withRetry(async () => {
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUploadPK(uploadId),
+          SK: createVoteSK(userId),
+        },
+      })
+    );
+
+    return (result.Item as DynamoVoteItem) || null;
+  });
+}
+
+/**
+ * Get all votes by a user (efficient GSI query)
+ * Returns a map of uploadId -> voteType for quick lookup
+ */
+export async function getUserVotesMap(
+  userId: string
+): Promise<Record<string, 'up' | 'down'>> {
+  return withRetry(async () => {
+    const votes: Record<string, 'up' | 'down'> = {};
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const result = await docClient.send(
+        new QueryCommand({
+          TableName: dynamoConfig.tableName,
+          IndexName: dynamoConfig.gsi1Name,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          ExpressionAttributeValues: {
+            ':pk': createUserGSI1PK(userId),
+          },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+
+      if (result.Items) {
+        for (const item of result.Items as DynamoVoteItem[]) {
+          votes[item.uploadId] = item.voteType;
+        }
+      }
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return votes;
+  });
+}
+
+/**
+ * Get vote count for an upload (counts from vote items)
+ * For scale, consider caching this or using DynamoDB Streams for async aggregation
+ */
+export async function getVoteCountForUpload(uploadId: string): Promise<number> {
+  return withRetry(async () => {
+    let upvotes = 0;
+    let downvotes = 0;
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const result = await docClient.send(
+        new QueryCommand({
+          TableName: dynamoConfig.tableName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+          ExpressionAttributeValues: {
+            ':pk': createUploadPK(uploadId),
+            ':skPrefix': 'VOTE#',
+          },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+
+      if (result.Items) {
+        for (const item of result.Items as DynamoVoteItem[]) {
+          if (item.voteType === 'up') upvotes++;
+          else if (item.voteType === 'down') downvotes++;
+        }
+      }
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return upvotes - downvotes;
+  });
+}
+
+/**
+ * Get vote counts for multiple uploads in parallel
+ * More efficient than calling getVoteCountForUpload for each
+ */
+export async function getVoteCountsForUploads(
+  uploadIds: string[]
+): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+
+  // Initialize all to 0
+  for (const id of uploadIds) {
+    counts[id] = 0;
+  }
+
+  // Fetch in parallel (batch of 10 to avoid overwhelming DynamoDB)
+  const batchSize = 10;
+  for (let i = 0; i < uploadIds.length; i += batchSize) {
+    const batch = uploadIds.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (uploadId) => ({
+        uploadId,
+        count: await getVoteCountForUpload(uploadId),
+      }))
+    );
+    for (const { uploadId, count } of results) {
+      counts[uploadId] = count;
+    }
+  }
+
+  return counts;
+}
+
+// ============ Legacy Vote Operations ============
+// Kept for backwards compatibility with existing repositories
+
+/**
+ * Create or update a vote item
+ * @deprecated Use castVote instead
  */
 export async function upsertVote(item: DynamoVoteItem): Promise<void> {
   await withRetry(async () => {
@@ -336,33 +538,23 @@ export async function upsertVote(item: DynamoVoteItem): Promise<void> {
 }
 
 /**
- * Get a specific vote
+ * Get a specific vote by uploadId and identifier (userId or deviceId)
+ * @deprecated Use getUserVote instead
  */
 export async function getVote(
   uploadId: string,
-  deviceId: string
+  identifier: string
 ): Promise<DynamoVoteItem | null> {
-  return withRetry(async () => {
-    const result = await docClient.send(
-      new GetCommand({
-        TableName: dynamoConfig.tableName,
-        Key: {
-          PK: createUploadPK(uploadId),
-          SK: createVoteSK(deviceId),
-        },
-      })
-    );
-
-    return (result.Item as DynamoVoteItem) || null;
-  });
+  return getUserVote(uploadId, identifier);
 }
 
 /**
  * Delete a vote
+ * @deprecated Use removeVote instead
  */
 export async function deleteVote(
   uploadId: string,
-  deviceId: string
+  identifier: string
 ): Promise<void> {
   await withRetry(async () => {
     await docClient.send(
@@ -370,7 +562,7 @@ export async function deleteVote(
         TableName: dynamoConfig.tableName,
         Key: {
           PK: createUploadPK(uploadId),
-          SK: createVoteSK(deviceId),
+          SK: createVoteSK(identifier),
         },
       })
     );
@@ -384,40 +576,63 @@ export async function getVotesForUpload(
   uploadId: string
 ): Promise<DynamoVoteItem[]> {
   return withRetry(async () => {
-    const result = await docClient.send(
-      new QueryCommand({
-        TableName: dynamoConfig.tableName,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
-        ExpressionAttributeValues: {
-          ':pk': createUploadPK(uploadId),
-          ':skPrefix': 'VOTE#',
-        },
-      })
-    );
+    const items: DynamoVoteItem[] = [];
+    let lastKey: Record<string, unknown> | undefined;
 
-    return (result.Items as DynamoVoteItem[]) || [];
+    do {
+      const result = await docClient.send(
+        new QueryCommand({
+          TableName: dynamoConfig.tableName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+          ExpressionAttributeValues: {
+            ':pk': createUploadPK(uploadId),
+            ':skPrefix': 'VOTE#',
+          },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+
+      if (result.Items) {
+        items.push(...(result.Items as DynamoVoteItem[]));
+      }
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return items;
   });
 }
 
 /**
- * Get all votes by a device
+ * Get all votes by a device/user
+ * @deprecated Use getUserVotesMap instead
  */
 export async function getVotesByDevice(
-  deviceId: string
+  identifier: string
 ): Promise<DynamoVoteItem[]> {
   return withRetry(async () => {
-    const result = await docClient.send(
-      new QueryCommand({
-        TableName: dynamoConfig.tableName,
-        IndexName: dynamoConfig.gsi1Name,
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: {
-          ':pk': createDeviceGSI1PK(deviceId),
-        },
-      })
-    );
+    const items: DynamoVoteItem[] = [];
+    let lastKey: Record<string, unknown> | undefined;
 
-    return (result.Items as DynamoVoteItem[]) || [];
+    do {
+      const result = await docClient.send(
+        new QueryCommand({
+          TableName: dynamoConfig.tableName,
+          IndexName: dynamoConfig.gsi1Name,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          ExpressionAttributeValues: {
+            ':pk': createUserGSI1PK(identifier),
+          },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+
+      if (result.Items) {
+        items.push(...(result.Items as DynamoVoteItem[]));
+      }
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return items;
   });
 }
 

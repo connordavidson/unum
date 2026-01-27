@@ -7,21 +7,23 @@
 
 import { FEATURE_FLAGS, API_CONFIG } from '../shared/constants';
 import { TEST_UPLOADS } from '../data/testUploads';
-import { getAllUploads } from '../api/clients/dynamodb.client';
+import { getAllUploads, getUserVotesMap } from '../api/clients/dynamodb.client';
 import { getMediaService } from '../services/media.service';
-import type { Upload, BoundingBox } from '../shared/types';
+import type { Upload, BoundingBox, VoteType } from '../shared/types';
 
 class UploadDataProvider {
   private cache: Upload[] | null = null;
   private cacheTime: number = 0;
+  private cacheUserId: string | null = null;
   private readonly CACHE_TTL = 60000; // 1 minute
 
   /**
    * Get all uploads (cached)
+   * @param userId - Current user's ID to determine their vote state
    */
-  async getAll(): Promise<Upload[]> {
-    // Return cache if valid
-    if (this.cache && Date.now() - this.cacheTime < this.CACHE_TTL) {
+  async getAll(userId?: string): Promise<Upload[]> {
+    // Return cache if valid and for same user
+    if (this.cache && Date.now() - this.cacheTime < this.CACHE_TTL && this.cacheUserId === userId) {
       console.log('[UploadDataProvider] Using cached data:', this.cache.length, 'uploads');
       return this.cache;
     }
@@ -32,7 +34,7 @@ class UploadDataProvider {
     if (FEATURE_FLAGS.USE_AWS_BACKEND) {
       try {
         console.log('[UploadDataProvider] Fetching from AWS...');
-        const awsData = await this.fetchFromAWS();
+        const awsData = await this.fetchFromAWS(userId);
         uploads = awsData;
         console.log('[UploadDataProvider] AWS returned', awsData.length, 'uploads');
       } catch (err) {
@@ -56,6 +58,7 @@ class UploadDataProvider {
     // Cache result
     this.cache = uploads;
     this.cacheTime = Date.now();
+    this.cacheUserId = userId || null;
 
     console.log('[UploadDataProvider] Loaded', uploads.length, 'total uploads');
     return uploads;
@@ -63,9 +66,10 @@ class UploadDataProvider {
 
   /**
    * Get uploads within bounding box
+   * @param userId - Current user's ID to determine their vote state
    */
-  async getInBounds(bbox: BoundingBox): Promise<Upload[]> {
-    const all = await this.getAll();
+  async getInBounds(bbox: BoundingBox, userId?: string): Promise<Upload[]> {
+    const all = await this.getAll(userId);
     const filtered = all.filter(upload => {
       const [lat, lon] = upload.coordinates;
       return lat >= bbox.minLat && lat <= bbox.maxLat &&
@@ -95,10 +99,17 @@ class UploadDataProvider {
 
   /**
    * Fetch from AWS and resolve media URLs
+   * @param userId - Current user's ID to determine their vote state
    */
-  private async fetchFromAWS(): Promise<Upload[]> {
-    const items = await getAllUploads();
+  private async fetchFromAWS(userId?: string): Promise<Upload[]> {
+    // Fetch uploads and user's votes in parallel
+    const [items, userVotesMap] = await Promise.all([
+      getAllUploads(),
+      userId ? getUserVotesMap(userId) : Promise.resolve({} as Record<string, 'up' | 'down'>),
+    ]);
+
     console.log('[UploadDataProvider] Got', items.length, 'items from DynamoDB');
+    console.log('[UploadDataProvider] User has', Object.keys(userVotesMap).length, 'votes');
 
     if (items.length === 0) {
       return [];
@@ -117,6 +128,13 @@ class UploadDataProvider {
           }
         }
 
+        // Use cached voteCount from upload item (updated when votes change)
+        // For true scale, use DynamoDB Streams to keep this in sync
+        const voteCount = item.voteCount ?? 0;
+
+        // Get user's vote from the map (fetched via GSI)
+        const userVote: VoteType | null = userVotesMap[item.id] ?? null;
+
         return {
           id: item.id,
           type: item.type,
@@ -124,7 +142,8 @@ class UploadDataProvider {
           coordinates: [item.latitude, item.longitude] as [number, number],
           timestamp: item.timestamp,
           caption: item.caption,
-          votes: item.voteCount,
+          votes: voteCount,
+          userVote,
         };
       })
     );
