@@ -250,8 +250,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
             key={`large-${index}`}
             center={toLatLng(cluster.center)}
             radius={cluster.radius}
-            fillColor="rgba(76, 175, 80, 0.3)"
-            strokeColor={COLORS.SUCCESS}
+            fillColor="rgba(244, 67, 54, 0.15)"
+            strokeColor="rgba(244, 67, 54, 0.4)"
             strokeWidth={2}
           />
         ))}
@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: COLORS.SUCCESS,
+    backgroundColor: 'rgba(244, 67, 54, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -481,7 +481,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: COLORS.DANGER,
+    backgroundColor: '#c62828',
     borderWidth: 3,
     borderColor: COLORS.BACKGROUND,
     ...SHADOWS.SMALL,
