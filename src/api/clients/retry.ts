@@ -5,6 +5,9 @@
  */
 
 import { retryConfig } from '../config';
+import { getLoggingService } from '../../services/logging.service';
+
+const log = getLoggingService().createLogger('API');
 
 export interface RetryOptions {
   maxRetries?: number;
@@ -112,24 +115,29 @@ export async function withRetry<T>(
 
       // Don't retry on last attempt or non-retryable errors
       if (attempt === maxRetries || !shouldRetry(error)) {
+        // Log final failure to Crashlytics
+        log.error(`AWS operation failed after ${attempt + 1} attempt(s)`, lastError);
         throw lastError;
       }
 
       // Calculate and wait for retry delay
       const delay = calculateDelay(attempt, baseDelayMs, maxDelayMs);
-      console.log(
-        `Retry attempt ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms: ${lastError.message}`
-      );
+      log.warn(`Retry attempt ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms`, {
+        error: lastError.message,
+        errorName: lastError.name,
+      });
       await sleep(delay);
     }
   }
 
   // Should never reach here, but TypeScript needs this
-  throw new RetryError(
+  const retryError = new RetryError(
     `Operation failed after ${maxRetries + 1} attempts`,
     maxRetries + 1,
     lastError
   );
+  log.error('AWS operation exhausted all retries', retryError);
+  throw retryError;
 }
 
 /**

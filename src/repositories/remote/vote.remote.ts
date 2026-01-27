@@ -24,6 +24,9 @@ import type {
   UpsertVoteInput,
 } from '../interfaces/vote.repository';
 import type { DynamoVoteItem } from '../../api/types';
+import { getLoggingService } from '../../services/logging.service';
+
+const log = getLoggingService().createLogger('Vote');
 
 // ============ Conversion Helpers ============
 
@@ -160,7 +163,7 @@ export class RemoteVoteRepository implements IVoteRepository {
 
   async markFailed(id: string, error: string): Promise<void> {
     // Remote repository doesn't track sync status
-    console.error(`Vote ${id} operation failed: ${error}`);
+    log.error(`Vote ${id} operation failed`, new Error(error));
   }
 }
 

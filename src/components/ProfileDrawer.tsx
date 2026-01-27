@@ -28,6 +28,7 @@ import {
   authenticate,
   BiometricType,
 } from '../services/biometric.service';
+import { getLoggingService } from '../services/logging.service';
 
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.75;
 
@@ -194,6 +195,48 @@ export function ProfileDrawer({
               />
             </View>
           )}
+
+          {/* Debug: Crashlytics Test Buttons (dev only) */}
+          {__DEV__ && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.debugTitle}>Debug Tools</Text>
+
+              <TouchableOpacity
+                style={styles.debugButton}
+                onPress={() => {
+                  getLoggingService().runAllTests();
+                  Alert.alert('Tests Sent', 'Check Firebase Console > Crashlytics in a few minutes');
+                }}
+              >
+                <Ionicons name="bug-outline" size={20} color={COLORS.TEXT_SECONDARY} />
+                <Text style={styles.debugButtonText}>Test Crashlytics (Non-Fatal)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.debugButton}
+                onPress={() => {
+                  Alert.alert(
+                    'Test Crash',
+                    'This will crash the app to test Crashlytics. Continue?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Crash App',
+                        style: 'destructive',
+                        onPress: () => getLoggingService().testCrash(),
+                      },
+                    ]
+                  );
+                }}
+              >
+                <Ionicons name="warning-outline" size={20} color={COLORS.DANGER} />
+                <Text style={[styles.debugButtonText, { color: COLORS.DANGER }]}>
+                  Test Crash (Fatal)
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* Sign Out Button */}
@@ -290,5 +333,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.DANGER,
     fontWeight: '500',
+  },
+  debugTitle: {
+    fontSize: 12,
+    color: COLORS.TEXT_TERTIARY,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  debugButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  debugButtonText: {
+    fontSize: 14,
+    color: COLORS.TEXT_SECONDARY,
   },
 });
