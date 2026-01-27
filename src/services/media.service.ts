@@ -21,6 +21,9 @@ import type {
   UploadProgressCallback,
   MediaUploadResult,
 } from '../repositories/interfaces/media.repository';
+import { getLoggingService } from './logging.service';
+
+const log = getLoggingService().createLogger('Media');
 
 // ============ Types ============
 
@@ -95,9 +98,9 @@ export class MediaService {
           timestamp || new Date().toISOString(),
           uploaderId || 'unknown'
         );
-        console.log('[MediaService] EXIF write complete, new path:', processedPath);
+        log.debug('EXIF write complete', { newPath: processedPath });
       } catch (exifError) {
-        console.error('[MediaService] EXIF write failed:', exifError);
+        log.warn('EXIF write failed, continuing with original', { error: String(exifError) });
         // Continue with original path
       }
     } else {
@@ -175,7 +178,7 @@ export class MediaService {
         const presigned = await this.remoteRepo.getDownloadUrl(keyOrUrl);
         return presigned.url;
       } catch (error) {
-        console.error('Failed to get S3 presigned URL:', error);
+        log.error('Failed to get S3 presigned URL', error);
       }
     }
 
@@ -198,7 +201,7 @@ export class MediaService {
       try {
         return await this.remoteRepo.downloadToCache(key);
       } catch (error) {
-        console.error('Failed to download from S3:', error);
+        log.error('Failed to download from S3', error);
         throw error;
       }
     }
@@ -297,7 +300,7 @@ export class MediaService {
       try {
         await this.remoteRepo.delete(key);
       } catch (error) {
-        console.error('Failed to delete from S3:', error);
+        log.error('Failed to delete from S3', error);
       }
     }
   }

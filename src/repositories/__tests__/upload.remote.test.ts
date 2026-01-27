@@ -351,7 +351,10 @@ describe('RemoteUploadRepository', () => {
 
       await repository.markFailed('upload-id', 'Test error');
 
-      expect(consoleSpy).toHaveBeenCalledWith('Upload upload-id operation failed: Test error');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[Upload] Upload upload-id operation failed',
+        expect.any(Error)
+      );
       consoleSpy.mockRestore();
     });
 

@@ -28,6 +28,9 @@ import type {
   UploadQueryResult,
 } from '../interfaces/upload.repository';
 import type { DynamoUploadItem } from '../../api/types';
+import { getLoggingService } from '../../services/logging.service';
+
+const log = getLoggingService().createLogger('Upload');
 
 // ============ Conversion Helpers ============
 
@@ -292,7 +295,7 @@ export class RemoteUploadRepository implements IUploadRepository {
   async markFailed(id: string, error: string): Promise<void> {
     // Remote repository doesn't track sync status
     // Errors are handled at the service layer
-    console.error(`Upload ${id} operation failed: ${error}`);
+    log.error(`Upload ${id} operation failed`, new Error(error));
   }
 
   // ============ Delete ============

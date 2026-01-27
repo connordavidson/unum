@@ -313,7 +313,10 @@ describe('RemoteVoteRepository', () => {
 
       await repository.markFailed('vote-id', 'Test error');
 
-      expect(consoleSpy).toHaveBeenCalledWith('Vote vote-id operation failed: Test error');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[Vote] Vote vote-id operation failed',
+        expect.any(Error)
+      );
       consoleSpy.mockRestore();
     });
   });

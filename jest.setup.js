@@ -1,6 +1,9 @@
 // Jest setup file
 // This runs before each test file
 
+// Define React Native globals
+global.__DEV__ = true;
+
 // Silence console logs during tests (optional - uncomment to enable)
 // global.console = {
 //   ...console,
