@@ -4,3 +4,4 @@ export { FeedCard } from './FeedCard';
 export { FeedPanel } from './FeedPanel';
 export { ProfileDrawer } from './ProfileDrawer';
 export { AppleSignInButton } from './AppleSignInButton';
+export { LockScreen } from './LockScreen';
