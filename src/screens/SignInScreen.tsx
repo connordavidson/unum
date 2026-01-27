@@ -5,7 +5,7 @@
  * Provides Apple Sign-In or the option to cancel.
  */
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthContext } from "../contexts/AuthContext";
+import { useAnalytics } from "../hooks/useAnalytics";
 import { AppleSignInButton } from "../components/AppleSignInButton";
 import { COLORS, SHADOWS } from "../shared/constants";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -34,14 +35,22 @@ export function SignInScreen({
 }: SignInScreenProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const { auth } = useAuthContext();
+  const { trackScreen, trackLogin } = useAnalytics();
+
+  // Track screen view on mount
+  useEffect(() => {
+    trackScreen('SignIn');
+  }, [trackScreen]);
 
   const handleSignIn = useCallback(async () => {
     const success = await auth.signInWithApple();
     if (success) {
+      // Track successful login
+      trackLogin();
       // Close modal and return to map
       navigation.goBack();
     }
-  }, [auth, navigation]);
+  }, [auth, navigation, trackLogin]);
 
   const handleClose = useCallback(() => {
     navigation.goBack();
