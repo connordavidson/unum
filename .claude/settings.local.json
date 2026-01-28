@@ -48,7 +48,14 @@
       "Bash(gem install:*)",
       "Bash(ruby -r xcodeproj -e:*)",
       "Bash(/usr/libexec/PlistBuddy:*)",
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "Bash(ls:*)",
+      "Bash(terraform init:*)",
+      "Bash(terraform:*)",
+      "Bash(brew install:*)",
+      "Bash(aws configure list:*)",
+      "Bash(aws configure set:*)",
+      "Bash(aws sts get-caller-identity:*)"
     ]
   }
 }

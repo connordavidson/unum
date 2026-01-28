@@ -3,6 +3,9 @@
  *
  * Handles all S3 operations including presigned URL generation
  * and media upload/download coordination.
+ *
+ * Security: Uses Cognito Identity Pool for temporary credentials.
+ * Credentials are refreshed automatically before each operation.
  */
 
 import {
@@ -16,6 +19,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as FileSystem from 'expo-file-system/legacy';
 import { awsConfig, s3Config } from '../config';
 import { withRetry } from './retry';
+import { getAWSCredentialsService } from '../../services/aws-credentials.service';
 import type { MediaType } from '../../shared/types';
 import type {
   PresignedUrlResponse,
@@ -41,13 +45,75 @@ const FileSystemUploadType = {
 
 // ============ Client Setup ============
 
-const s3Client = new S3Client({
-  region: awsConfig.region,
-  credentials: {
-    accessKeyId: awsConfig.accessKeyId,
-    secretAccessKey: awsConfig.secretAccessKey,
-  },
-});
+// Cache for the S3 client - recreated when credentials change
+let cachedS3Client: S3Client | null = null;
+let cachedCredentialsExpiration: Date | null = null;
+let cachedReadOnlyS3Client: S3Client | null = null;
+let cachedReadOnlyCredentialsExpiration: Date | null = null;
+
+/**
+ * Get an S3 Client with current credentials
+ * Credentials are obtained from Cognito Identity Pool
+ * Use this for WRITE operations (requires authenticated user)
+ */
+async function getS3Client(): Promise<S3Client> {
+  const credentialsService = getAWSCredentialsService();
+  const credentials = await credentialsService.getCredentials();
+
+  // Reuse cached client if credentials haven't changed
+  if (
+    cachedS3Client &&
+    cachedCredentialsExpiration &&
+    cachedCredentialsExpiration.getTime() === credentials.expiration.getTime()
+  ) {
+    return cachedS3Client;
+  }
+
+  // Create new client with fresh credentials
+  cachedS3Client = new S3Client({
+    region: awsConfig.region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+  cachedCredentialsExpiration = credentials.expiration;
+
+  return cachedS3Client;
+}
+
+/**
+ * Get an S3 Client with read-only credentials
+ * Uses unauthenticated (guest) credentials - no sign-in required
+ * Use this for READ operations (presigned URLs for viewing)
+ */
+async function getReadOnlyS3Client(): Promise<S3Client> {
+  const credentialsService = getAWSCredentialsService();
+  const credentials = await credentialsService.getReadOnlyCredentials();
+
+  // Reuse cached client if credentials haven't changed
+  if (
+    cachedReadOnlyS3Client &&
+    cachedReadOnlyCredentialsExpiration &&
+    cachedReadOnlyCredentialsExpiration.getTime() === credentials.expiration.getTime()
+  ) {
+    return cachedReadOnlyS3Client;
+  }
+
+  // Create new client with read-only credentials
+  cachedReadOnlyS3Client = new S3Client({
+    region: awsConfig.region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+  cachedReadOnlyCredentialsExpiration = credentials.expiration;
+
+  return cachedReadOnlyS3Client;
+}
 
 // ============ Key Generation ============
 
@@ -105,6 +171,7 @@ export async function getPresignedUploadUrl(
     ContentType: contentType,
   });
 
+  const s3Client = await getS3Client();
   const url = await getSignedUrl(s3Client, command, {
     expiresIn: s3Config.presignedUrlExpiration.upload,
   });
@@ -122,6 +189,7 @@ export async function getPresignedUploadUrl(
 
 /**
  * Generate a presigned URL for downloading media
+ * Uses read-only credentials (no sign-in required)
  */
 export async function getPresignedDownloadUrl(
   key: string
@@ -131,6 +199,7 @@ export async function getPresignedDownloadUrl(
     Key: key,
   });
 
+  const s3Client = await getReadOnlyS3Client();
   const url = await getSignedUrl(s3Client, command, {
     expiresIn: s3Config.presignedUrlExpiration.download,
   });
@@ -165,6 +234,7 @@ export async function uploadToS3(
       ContentType: contentType,
     });
 
+    const s3Client = await getS3Client();
     const presignedUrl = await getSignedUrl(s3Client, command, {
       expiresIn: s3Config.presignedUrlExpiration.upload,
     });
@@ -215,6 +285,7 @@ export async function uploadMediaDirect(
   contentType: string
 ): Promise<void> {
   await withRetry(async () => {
+    const s3Client = await getS3Client();
     await s3Client.send(
       new PutObjectCommand({
         Bucket: awsConfig.s3Bucket,
@@ -301,6 +372,7 @@ export async function getCachedOrDownload(
  */
 export async function deleteFromS3(key: string): Promise<void> {
   await withRetry(async () => {
+    const s3Client = await getS3Client();
     await s3Client.send(
       new DeleteObjectCommand({
         Bucket: awsConfig.s3Bucket,
@@ -328,6 +400,7 @@ export async function deleteMultipleFromS3(keys: string[]): Promise<void> {
  */
 export async function objectExists(key: string): Promise<boolean> {
   try {
+    const s3Client = await getS3Client();
     await s3Client.send(
       new HeadObjectCommand({
         Bucket: awsConfig.s3Bucket,
@@ -354,6 +427,7 @@ export async function getObjectMetadata(
   lastModified?: Date;
 } | null> {
   try {
+    const s3Client = await getS3Client();
     const result = await s3Client.send(
       new HeadObjectCommand({
         Bucket: awsConfig.s3Bucket,

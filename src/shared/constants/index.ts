@@ -1,7 +1,14 @@
 import Constants from "expo-constants";
 
-// Get feature flags from expo-constants (populated from .env via app.config.ts)
+// Get config from expo-constants (populated from .env via app.config.ts)
 const extra = Constants.expoConfig?.extra ?? {};
+
+// ============ Environment Configuration ============
+export const APP_ENV = {
+  name: (extra.appEnv as string) || 'development',
+  isProduction: extra.isProduction ?? false,
+  isDevelopment: !extra.isProduction,
+};
 
 // ============ Map Configuration ============
 export const MAP_CONFIG = {
@@ -152,8 +159,14 @@ export const BFF_STORAGE_KEYS = {
 export const AUTH_STORAGE_KEYS = {
   /** Apple user ID (stored in SecureStore) */
   APPLE_USER_ID: 'unum_apple_user_id',
+  /** Apple identity token for Cognito (stored in SecureStore) */
+  APPLE_IDENTITY_TOKEN: 'unum_apple_identity_token',
   /** User profile data (stored in AsyncStorage) */
   USER_PROFILE: 'unum_user_profile',
+  /** Refresh token for auth backend (stored in SecureStore) */
+  REFRESH_TOKEN: 'unum_refresh_token',
+  /** Session ID from auth backend (stored in SecureStore) */
+  SESSION_ID: 'unum_session_id',
 };
 
 // ============ Migration Configuration ============

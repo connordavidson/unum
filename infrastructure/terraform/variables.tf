@@ -59,3 +59,32 @@ variable "cors_allowed_origins" {
   type        = list(string)
   default     = ["*"]
 }
+
+# ============ Cognito ============
+
+variable "apple_service_id" {
+  description = "Apple Services ID for Sign in with Apple (typically the app bundle identifier)"
+  type        = string
+  default     = "com.unum.app"
+}
+
+# ============ Existing Resources ============
+# Use these to reference existing resources instead of creating new ones
+
+variable "dynamo_table_name" {
+  description = "Name of existing DynamoDB table to use"
+  type        = string
+  default     = "unum-dev"
+}
+
+variable "cognito_identity_pool_id" {
+  description = "ID of existing Cognito Identity Pool"
+  type        = string
+  default     = ""
+}
+
+variable "s3_bucket_name" {
+  description = "Name of existing S3 bucket to use"
+  type        = string
+  default     = ""
+}

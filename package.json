@@ -16,6 +16,7 @@
     "seed:cleanup": "npx ts-node --project scripts/tsconfig.json scripts/cleanupSeeds.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity": "^3.975.0",
     "@aws-sdk/client-dynamodb": "^3.975.0",
     "@aws-sdk/client-s3": "^3.975.0",
     "@aws-sdk/lib-dynamodb": "^3.975.0",

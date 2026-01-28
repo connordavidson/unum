@@ -101,6 +101,7 @@ class UploadDataProvider {
    * @param userId - Current user's ID to determine their vote state
    */
   private async fetchFromAWS(userId?: string): Promise<Upload[]> {
+    // Read operations use unauthenticated credentials - no waiting needed
     // Fetch uploads and user's votes in parallel
     const [items, userVotesMap] = await Promise.all([
       getAllUploads(),

@@ -3,12 +3,12 @@
  *
  * Handles all DynamoDB operations for uploads and votes.
  * Uses single-table design with GSIs for efficient queries.
+ *
+ * Security: Uses Cognito Identity Pool for temporary credentials.
+ * Credentials are refreshed automatically before each operation.
  */
 
-import {
-  DynamoDBClient,
-  DynamoDBClientConfig,
-} from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
   GetCommand,
@@ -21,6 +21,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { awsConfig, dynamoConfig } from '../config';
 import { withRetry } from './retry';
+import { getAWSCredentialsService } from '../../services/aws-credentials.service';
 import type {
   DynamoUploadItem,
   DynamoVoteItem,
@@ -30,20 +31,87 @@ import type {
 
 // ============ Client Setup ============
 
-const clientConfig: DynamoDBClientConfig = {
-  region: awsConfig.region,
-  credentials: {
-    accessKeyId: awsConfig.accessKeyId,
-    secretAccessKey: awsConfig.secretAccessKey,
-  },
-};
+// Cache for the document client - recreated when credentials change
+let cachedDocClient: DynamoDBDocumentClient | null = null;
+let cachedCredentialsExpiration: Date | null = null;
+let cachedReadOnlyDocClient: DynamoDBDocumentClient | null = null;
+let cachedReadOnlyCredentialsExpiration: Date | null = null;
 
-const baseClient = new DynamoDBClient(clientConfig);
-const docClient = DynamoDBDocumentClient.from(baseClient, {
-  marshallOptions: {
-    removeUndefinedValues: true,
-  },
-});
+/**
+ * Get a DynamoDB Document Client with current credentials
+ * Credentials are obtained from Cognito Identity Pool
+ * Use this for WRITE operations (requires authenticated user)
+ */
+async function getDocClient(): Promise<DynamoDBDocumentClient> {
+  const credentialsService = getAWSCredentialsService();
+  const credentials = await credentialsService.getCredentials();
+
+  // Reuse cached client if credentials haven't changed
+  if (
+    cachedDocClient &&
+    cachedCredentialsExpiration &&
+    cachedCredentialsExpiration.getTime() === credentials.expiration.getTime()
+  ) {
+    return cachedDocClient;
+  }
+
+  // Create new client with fresh credentials
+  const baseClient = new DynamoDBClient({
+    region: awsConfig.region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+
+  cachedDocClient = DynamoDBDocumentClient.from(baseClient, {
+    marshallOptions: {
+      removeUndefinedValues: true,
+    },
+  });
+  cachedCredentialsExpiration = credentials.expiration;
+
+  return cachedDocClient;
+}
+
+/**
+ * Get a DynamoDB Document Client with read-only credentials
+ * Uses unauthenticated (guest) credentials - no sign-in required
+ * Use this for READ operations
+ */
+async function getReadOnlyDocClient(): Promise<DynamoDBDocumentClient> {
+  const credentialsService = getAWSCredentialsService();
+  const credentials = await credentialsService.getReadOnlyCredentials();
+
+  // Reuse cached client if credentials haven't changed
+  if (
+    cachedReadOnlyDocClient &&
+    cachedReadOnlyCredentialsExpiration &&
+    cachedReadOnlyCredentialsExpiration.getTime() === credentials.expiration.getTime()
+  ) {
+    return cachedReadOnlyDocClient;
+  }
+
+  // Create new client with read-only credentials
+  const baseClient = new DynamoDBClient({
+    region: awsConfig.region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+
+  cachedReadOnlyDocClient = DynamoDBDocumentClient.from(baseClient, {
+    marshallOptions: {
+      removeUndefinedValues: true,
+    },
+  });
+  cachedReadOnlyCredentialsExpiration = credentials.expiration;
+
+  return cachedReadOnlyDocClient;
+}
 
 // ============ Key Helpers ============
 
@@ -86,6 +154,7 @@ export function createUserSK(): string {
  */
 export async function createUpload(item: DynamoUploadItem): Promise<void> {
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -103,6 +172,7 @@ export async function getUploadById(
   uploadId: string
 ): Promise<DynamoUploadItem | null> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new GetCommand({
         TableName: dynamoConfig.tableName,
@@ -153,6 +223,7 @@ export async function updateUpload(
     expressionNames['#updatedAt'] = 'updatedAt';
     expressionValues[':updatedAt'] = new Date().toISOString();
 
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new UpdateCommand({
         TableName: dynamoConfig.tableName,
@@ -179,6 +250,7 @@ export async function updateVoteCount(
   delta: number
 ): Promise<number> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new UpdateCommand({
         TableName: dynamoConfig.tableName,
@@ -206,6 +278,7 @@ export async function updateVoteCount(
  */
 export async function deleteUpload(uploadId: string): Promise<void> {
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new DeleteCommand({
         TableName: dynamoConfig.tableName,
@@ -225,6 +298,7 @@ export async function deleteUpload(uploadId: string): Promise<void> {
  */
 export async function getAllUploads(): Promise<DynamoUploadItem[]> {
   return withRetry(async () => {
+    const docClient = await getReadOnlyDocClient();
     const items: DynamoUploadItem[] = [];
     let lastKey: Record<string, unknown> | undefined;
 
@@ -265,6 +339,7 @@ export async function queryUploadsByGeohash(
   lastEvaluatedKey?: Record<string, unknown>;
 }> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new QueryCommand({
         TableName: dynamoConfig.tableName,
@@ -302,6 +377,7 @@ export async function queryUploadsByDevice(
   lastEvaluatedKey?: Record<string, unknown>;
 }> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     // Use scan with filters - uploads have SK = 'METADATA' and deviceId attribute
     const result = await docClient.send(
       new ScanCommand({
@@ -356,6 +432,7 @@ export async function castVote(
   };
 
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -377,6 +454,7 @@ export async function removeVote(
   userId: string
 ): Promise<VoteResult> {
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new DeleteCommand({
         TableName: dynamoConfig.tableName,
@@ -401,6 +479,7 @@ export async function getUserVote(
   userId: string
 ): Promise<DynamoVoteItem | null> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new GetCommand({
         TableName: dynamoConfig.tableName,
@@ -423,6 +502,7 @@ export async function getUserVotesMap(
   userId: string
 ): Promise<Record<string, 'up' | 'down'>> {
   return withRetry(async () => {
+    const docClient = await getReadOnlyDocClient();
     const votes: Record<string, 'up' | 'down'> = {};
     let lastKey: Record<string, unknown> | undefined;
 
@@ -457,6 +537,7 @@ export async function getUserVotesMap(
  */
 export async function getVoteCountForUpload(uploadId: string): Promise<number> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     let upvotes = 0;
     let downvotes = 0;
     let lastKey: Record<string, unknown> | undefined;
@@ -528,6 +609,7 @@ export async function getVoteCountsForUploads(
  */
 export async function upsertVote(item: DynamoVoteItem): Promise<void> {
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -557,6 +639,7 @@ export async function deleteVote(
   identifier: string
 ): Promise<void> {
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new DeleteCommand({
         TableName: dynamoConfig.tableName,
@@ -576,6 +659,7 @@ export async function getVotesForUpload(
   uploadId: string
 ): Promise<DynamoVoteItem[]> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const items: DynamoVoteItem[] = [];
     let lastKey: Record<string, unknown> | undefined;
 
@@ -610,6 +694,7 @@ export async function getVotesByDevice(
   identifier: string
 ): Promise<DynamoVoteItem[]> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const items: DynamoVoteItem[] = [];
     let lastKey: Record<string, unknown> | undefined;
 
@@ -643,6 +728,7 @@ export async function getVotesByDevice(
  */
 export async function createUser(item: DynamoUserItem): Promise<void> {
   await withRetry(async () => {
+    const docClient = await getDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -660,6 +746,7 @@ export async function getUserById(
   userId: string
 ): Promise<DynamoUserItem | null> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new GetCommand({
         TableName: dynamoConfig.tableName,
@@ -709,6 +796,7 @@ export async function updateUser(
     expressionNames['#updatedAt'] = 'updatedAt';
     expressionValues[':updatedAt'] = new Date().toISOString();
 
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new UpdateCommand({
         TableName: dynamoConfig.tableName,
@@ -787,6 +875,7 @@ export async function batchDelete(
   }
 
   await withRetry(async () => {
+    const docClient = await getDocClient();
     for (const batch of batches) {
       await docClient.send(
         new BatchWriteCommand({
@@ -813,6 +902,7 @@ export async function executeQuery(
   lastEvaluatedKey?: Record<string, unknown>;
 }> {
   return withRetry(async () => {
+    const docClient = await getDocClient();
     const result = await docClient.send(
       new QueryCommand({
         TableName: options.tableName,

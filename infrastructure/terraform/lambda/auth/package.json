@@ -1,0 +1,11 @@
+{
+  "name": "unum-auth-lambda",
+  "version": "1.0.0",
+  "description": "Auth backend for Unum app - handles session management",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "@aws-sdk/client-cognito-identity": "^3.0.0"
+  }
+}
