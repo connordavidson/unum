@@ -65,7 +65,7 @@ export function useAnalytics(): UseAnalyticsResult {
         previousAppState.current === 'active' &&
         nextAppState.match(/inactive|background/)
       ) {
-        analytics.track('app_background');
+        analytics.track('app_backgrounded');
       }
       previousAppState.current = nextAppState;
     });

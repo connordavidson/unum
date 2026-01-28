@@ -12,7 +12,7 @@ import analytics from '@react-native-firebase/analytics';
 export type AnalyticsEventName =
   // App lifecycle
   | 'app_open'
-  | 'app_background'
+  | 'app_backgrounded'
   // Media capture
   | 'photo_capture'
   | 'video_record'
