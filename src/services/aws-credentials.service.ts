@@ -61,6 +61,7 @@ class AWSCredentialsService {
   private initialized: boolean = false;
   private restorationAttempted: boolean = false;
   private _needsReauthentication: boolean = false;
+  private _isAuthenticatedCredentials: boolean = false;
 
   constructor() {
     this.cognitoClient = new CognitoIdentityClient({
@@ -281,8 +282,9 @@ class AWSCredentialsService {
       // Don't store this identity ID - it's ephemeral for unauthenticated users
       this.initialized = true;
       this._needsReauthentication = false;
+      this._isAuthenticatedCredentials = false; // Guest credentials - read-only
 
-      console.log('[AWSCredentials] Got unauthenticated credentials, expires:', this.credentials.expiration.toISOString());
+      console.log('[AWSCredentials] Got unauthenticated credentials (read-only), expires:', this.credentials.expiration.toISOString());
       return true;
     } catch (error) {
       console.log('[AWSCredentials] Failed to get unauthenticated credentials:', error instanceof Error ? error.message : error);
@@ -322,11 +324,12 @@ class AWSCredentialsService {
       this.identityId = result.cognitoIdentityId;
       this.initialized = true;
       this._needsReauthentication = false;
+      this._isAuthenticatedCredentials = true; // Full read-write access
 
       // Store identity ID for future use
       await this.storeIdentityId(this.identityId);
 
-      console.log('[AWSCredentials] Successfully restored credentials via auth backend!');
+      console.log('[AWSCredentials] Successfully restored credentials via auth backend (authenticated)!');
       console.log('[AWSCredentials] Expires:', this.credentials.expiration.toISOString());
       return true;
     } catch (error) {
@@ -340,6 +343,14 @@ class AWSCredentialsService {
    */
   get needsReauthentication(): boolean {
     return this._needsReauthentication;
+  }
+
+  /**
+   * Check if current credentials are authenticated (vs guest/unauthenticated)
+   * Used to determine if user can perform write operations
+   */
+  get hasAuthenticatedCredentials(): boolean {
+    return this._isAuthenticatedCredentials;
   }
 
   /**
@@ -369,11 +380,12 @@ class AWSCredentialsService {
           expiration: new Date(session.credentials.expiration),
         };
         this.identityId = session.cognitoIdentityId;
+        this._isAuthenticatedCredentials = true; // Full read-write access
 
         // Store identity ID for fallback
         await this.storeIdentityId(this.identityId);
 
-        console.log('[AWSCredentials] Authenticated via auth backend, credentials expire:', this.credentials.expiration.toISOString());
+        console.log('[AWSCredentials] Authenticated via auth backend (full access), credentials expire:', this.credentials.expiration.toISOString());
         return this.credentials;
       } catch (backendError) {
         console.error('[AWSCredentials] Auth backend failed, falling back to direct Cognito');
@@ -427,7 +439,8 @@ class AWSCredentialsService {
       };
 
       this.initialized = true;
-      console.log('[AWSCredentials] Successfully restored credentials without Apple token!');
+      this._isAuthenticatedCredentials = true; // Using authenticated identity
+      console.log('[AWSCredentials] Successfully restored credentials without Apple token (authenticated)!');
       console.log('[AWSCredentials] Expires:', this.credentials.expiration.toISOString());
       return true;
     } catch (error) {
@@ -510,6 +523,7 @@ class AWSCredentialsService {
     this.initialized = false;
     this.restorationAttempted = false;
     this._needsReauthentication = false;
+    this._isAuthenticatedCredentials = false;
     await this.clearStoredIdentityId();
 
     // Clear auth backend session
@@ -603,9 +617,10 @@ class AWSCredentialsService {
         sessionToken: creds.SessionToken,
         expiration: creds.Expiration || new Date(Date.now() + 3600 * 1000), // Default 1 hour
       };
+      this._isAuthenticatedCredentials = true; // Direct Cognito with Apple token
 
       console.log(
-        '[AWSCredentials] Credentials refreshed, expires:',
+        '[AWSCredentials] Credentials refreshed (authenticated), expires:',
         this.credentials.expiration.toISOString()
       );
 

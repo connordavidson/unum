@@ -311,7 +311,15 @@ export async function loadStoredAuth(): Promise<AuthUser | null> {
       try {
         console.log('[AuthService] Trying to restore AWS credentials...');
         await credentialsService.getCredentials();
-        console.log('[AuthService] AWS credentials restored successfully');
+
+        // Check if we got authenticated credentials (not just guest/read-only)
+        if (!credentialsService.hasAuthenticatedCredentials) {
+          console.log('[AuthService] Only got read-only credentials - session expired, clearing auth');
+          await signOut();
+          return null;
+        }
+
+        console.log('[AuthService] AWS credentials restored successfully (authenticated)');
       } catch (credentialsError) {
         console.log('[AuthService] Could not restore AWS credentials:', credentialsError instanceof Error ? credentialsError.message : credentialsError);
         // User will need to sign in again for AWS operations, but can still use app locally
