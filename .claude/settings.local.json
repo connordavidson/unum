@@ -59,7 +59,8 @@
       "Bash(xargs:*)",
       "Bash(npx jest --no-coverage)",
       "Bash(npx jest:*)",
-      "Bash(gh pr edit:*)"
+      "Bash(gh pr edit:*)",
+      "Bash(gh api:*)"
     ]
   }
 }
