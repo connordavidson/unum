@@ -2,6 +2,7 @@
  * Auth Service
  *
  * Handles Apple Sign-In authentication, credential storage, and session management.
+ * Integrates with AWS Cognito Identity Pools for secure credential management.
  */
 
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -9,6 +10,7 @@ import * as SecureStore from 'expo-secure-store';
 import { AUTH_STORAGE_KEYS, FEATURE_FLAGS } from '../shared/constants';
 import { getStoredJSON, setStoredJSON } from '../shared/utils';
 import { upsertUser, getUserById } from '../api/clients/dynamodb.client';
+import { getAWSCredentialsService } from './aws-credentials.service';
 import type { AuthUser, StoredAuthData } from '../shared/types/auth';
 
 // ============ Types ============
@@ -48,6 +50,36 @@ async function clearAppleUserId(): Promise<void> {
     await SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.APPLE_USER_ID);
   } catch (error) {
     console.error('[AuthService] Failed to clear Apple user ID:', error);
+  }
+}
+
+/**
+ * Store Apple identity token securely (for Cognito)
+ */
+async function storeAppleIdentityToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(AUTH_STORAGE_KEYS.APPLE_IDENTITY_TOKEN, token);
+}
+
+/**
+ * Retrieve stored Apple identity token
+ */
+async function getStoredAppleIdentityToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_STORAGE_KEYS.APPLE_IDENTITY_TOKEN);
+  } catch (error) {
+    console.error('[AuthService] Failed to get stored Apple identity token:', error);
+    return null;
+  }
+}
+
+/**
+ * Clear stored Apple identity token
+ */
+async function clearAppleIdentityToken(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.APPLE_IDENTITY_TOKEN);
+  } catch (error) {
+    console.error('[AuthService] Failed to clear Apple identity token:', error);
   }
 }
 
@@ -106,7 +138,10 @@ export async function signInWithApple(): Promise<SignInResult> {
       fullName: credential.fullName,
       givenName: credential.fullName?.givenName,
       familyName: credential.fullName?.familyName,
+      hasIdentityToken: !!credential.identityToken,
+      identityTokenLength: credential.identityToken?.length,
     });
+    console.log('[AuthService] USE_AWS_BACKEND:', FEATURE_FLAGS.USE_AWS_BACKEND);
 
     // Apple only provides fullName and email on the FIRST sign-in
     // On subsequent sign-ins, we need to use stored profile data
@@ -120,6 +155,24 @@ export async function signInWithApple(): Promise<SignInResult> {
     }
 
     console.log('[AuthService] Parsed displayName:', displayName);
+
+    // Initialize AWS credentials via Cognito if we have an identity token
+    console.log('[AuthService] Checking AWS backend:', { useAwsBackend: FEATURE_FLAGS.USE_AWS_BACKEND, hasToken: !!credential.identityToken });
+    if (FEATURE_FLAGS.USE_AWS_BACKEND && credential.identityToken) {
+      try {
+        console.log('[AuthService] Storing identity token...');
+        // Store the identity token for session restoration
+        await storeAppleIdentityToken(credential.identityToken);
+        console.log('[AuthService] Identity token stored, initializing Cognito...');
+        await getAWSCredentialsService().initializeWithAppleToken(credential.identityToken);
+        console.log('[AuthService] AWS credentials initialized successfully');
+      } catch (cognitoError) {
+        console.error('[AuthService] Failed to initialize AWS credentials:', cognitoError);
+        // Continue with sign-in - AWS operations will fail but user can still use app locally
+      }
+    } else {
+      console.log('[AuthService] Skipping AWS init - backend disabled or no token');
+    }
 
     // Store credentials locally
     await storeAppleUserId(credential.user);
@@ -220,7 +273,12 @@ export async function signInWithApple(): Promise<SignInResult> {
  */
 export async function signOut(): Promise<void> {
   console.log('[AuthService] Signing out');
+
+  // Clear AWS credentials
+  await getAWSCredentialsService().clearCredentials();
+
   await clearAppleUserId();
+  await clearAppleIdentityToken();
   await clearUserProfile();
 }
 
@@ -236,12 +294,30 @@ export async function loadStoredAuth(): Promise<AuthUser | null> {
       return null;
     }
 
-    // Verify credentials are still valid
+    // Verify Apple credential is still valid (local Keychain check).
+    // Only sign out on explicit revocation or not-found — transient errors
+    // should not force re-authentication.
     const credentialState = await checkCredentialState(userId);
-    if (credentialState !== 'authorized') {
-      console.log('[AuthService] Stored credentials no longer valid, clearing');
+    if (credentialState === 'revoked' || credentialState === 'not_found') {
+      console.log('[AuthService] Apple credential', credentialState, '- signing out');
       await signOut();
       return null;
+    }
+
+    // Restore AWS credentials in the background (best-effort).
+    // User identity is determined by Apple credential state above, not by
+    // whether AWS credential restoration succeeds on this particular startup.
+    // Write operations call getCredentials() on-demand when they need auth.
+    if (FEATURE_FLAGS.USE_AWS_BACKEND) {
+      const credentialsService = getAWSCredentialsService();
+      try {
+        console.log('[AuthService] Restoring AWS credentials...');
+        await credentialsService.getCredentials();
+        console.log('[AuthService] AWS credentials restored:', credentialsService.hasAuthenticatedCredentials ? 'authenticated' : 'guest');
+      } catch (credentialsError) {
+        console.log('[AuthService] Could not restore AWS credentials:', credentialsError instanceof Error ? credentialsError.message : credentialsError);
+        // Not fatal — user stays logged in, write operations will retry or prompt re-auth
+      }
     }
 
     // Load profile data from local cache

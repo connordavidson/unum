@@ -7,9 +7,9 @@
  * Composes useDeviceIdentity and useVoting for identity and voting.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import * as Crypto from 'expo-crypto';
-import { FEATURE_FLAGS } from '../shared/constants';
+import { FEATURE_FLAGS, UPLOAD_CONFIG } from '../shared/constants';
 import { getUploadDataProvider } from '../providers/UploadDataProvider';
 import { getUploadService } from '../services/upload.service';
 import { getMediaService } from '../services/media.service';
@@ -29,7 +29,7 @@ interface UseUploadDataResult {
 
 export function useUploadData(): UseUploadDataResult {
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Compose existing hooks
@@ -50,24 +50,41 @@ export function useUploadData(): UseUploadDataResult {
   // Get singleton provider
   const provider = getUploadDataProvider();
 
-  // Initial load
-  useEffect(() => {
-    setLoading(false);
-  }, []);
+  // Request versioning to handle race conditions
+  // Only the latest request's result is applied to state
+  const requestVersionRef = useRef(0);
 
   // Refresh uploads - delegates entirely to provider
+  // Uses request versioning to ensure only the latest request wins
   const refreshUploads = useCallback(async (bbox?: BoundingBox) => {
+    const currentVersion = ++requestVersionRef.current;
     const currentUserId = userIdRef.current || userId;
-    console.log('[useUploadData] refreshUploads called', { hasBbox: !!bbox, userId: currentUserId });
+
+    console.log('[useUploadData] refreshUploads called', {
+      version: currentVersion,
+      hasBbox: !!bbox,
+      userId: currentUserId
+    });
+
     try {
       const data = bbox
         ? await provider.getInBounds(bbox, currentUserId || undefined)
         : await provider.getAll(currentUserId || undefined);
-      setUploads(data);
-      setError(null);
+
+      // Only apply if this is still the latest request
+      if (currentVersion === requestVersionRef.current) {
+        setUploads(data);
+        setError(null);
+        console.log('[useUploadData] Applied result for version', currentVersion, ':', data.length, 'uploads');
+      } else {
+        console.log('[useUploadData] Ignoring stale result for version', currentVersion, '(current:', requestVersionRef.current, ')');
+      }
     } catch (err) {
-      console.error('[useUploadData] Refresh failed:', err);
-      setError('Failed to load uploads');
+      // Only set error if this is still the latest request
+      if (currentVersion === requestVersionRef.current) {
+        console.error('[useUploadData] Refresh failed:', err);
+        setError('Failed to load uploads');
+      }
     }
   }, [provider, userId, userIdRef]);
 
@@ -86,12 +103,10 @@ export function useUploadData(): UseUploadDataResult {
       if (!currentUserId) {
         // Wait briefly for user ID initialization
         let waitTime = 0;
-        const maxWait = 3000;
-        const checkInterval = 100;
 
-        while (!userIdRef.current && waitTime < maxWait) {
-          await new Promise(resolve => setTimeout(resolve, checkInterval));
-          waitTime += checkInterval;
+        while (!userIdRef.current && waitTime < UPLOAD_CONFIG.USER_ID_WAIT_MS) {
+          await new Promise(resolve => setTimeout(resolve, UPLOAD_CONFIG.USER_ID_CHECK_INTERVAL_MS));
+          waitTime += UPLOAD_CONFIG.USER_ID_CHECK_INTERVAL_MS;
         }
 
         if (!userIdRef.current) {

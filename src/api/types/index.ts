@@ -9,8 +9,7 @@ import type { MediaType, Coordinates } from '../../shared/types';
 
 export interface AWSConfig {
   region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  cognitoIdentityPoolId: string;
   s3Bucket: string;
   dynamoTableName: string;
 }

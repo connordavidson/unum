@@ -6,3 +6,4 @@ export * from './votes';
 export * from './errors';
 export * from './styles';
 export * from './debug';
+export * from './dedup';

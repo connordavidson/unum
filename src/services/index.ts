@@ -8,3 +8,4 @@ export * from './upload.service';
 export * from './vote.service';
 export * from './media.service';
 export * from './sync.service';
+export * from './aws-credentials.service';

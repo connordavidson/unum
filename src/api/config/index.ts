@@ -4,10 +4,13 @@
  * Configuration values are loaded from environment variables via app.config.ts
  * and exposed through expo-constants.
  *
+ * Security: This configuration contains NO secrets. AWS credentials are obtained
+ * at runtime via Cognito Identity Pools after user authenticates with Apple Sign-In.
+ *
  * To configure:
- * 1. Copy .env.example to .env
- * 2. Fill in your AWS credentials
- * 3. Restart the Metro bundler
+ * 1. Set environment variables in .env.development or .env.production
+ * 2. Run Terraform to create the Cognito Identity Pool
+ * 3. Update COGNITO_IDENTITY_POOL_ID with the Terraform output
  */
 
 import Constants from 'expo-constants';
@@ -16,12 +19,18 @@ import type { AWSConfig } from '../types';
 // Get config from expo-constants (populated from app.config.ts)
 const extra = Constants.expoConfig?.extra ?? {};
 
+// Environment info
+export const appEnv = {
+  name: extra.appEnv || 'development',
+  isProduction: extra.isProduction ?? false,
+  isDevelopment: !extra.isProduction,
+};
+
 export const awsConfig: AWSConfig = {
   region: extra.awsRegion || 'us-east-1',
-  accessKeyId: extra.awsAccessKeyId || '',
-  secretAccessKey: extra.awsSecretAccessKey || '',
-  s3Bucket: extra.s3Bucket || 'unum-media-dev',
-  dynamoTableName: extra.dynamoTable || 'unum-data-dev',
+  cognitoIdentityPoolId: extra.cognitoIdentityPoolId || '',
+  s3Bucket: extra.s3Bucket || `unum-${appEnv.name}-media`,
+  dynamoTableName: extra.dynamoTable || `unum-${appEnv.name}-data`,
 };
 
 // Feature flags from app.config.ts

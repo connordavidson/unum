@@ -5,6 +5,7 @@
  */
 
 import type { Upload, BoundingBox, Coordinates, VoteType, MapRegion } from '../../shared/types';
+import type { AuthUser, AWSCredentials } from '../../shared/types/auth';
 
 // ============ Upload Mocks ============
 
@@ -174,3 +175,113 @@ export const wait = (ms: number): Promise<void> =>
  */
 export const flushPromises = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
+
+// ============ AWS Credential Mocks ============
+
+/**
+ * Create mock AWS credentials
+ */
+export const mockAWSCredentials = (overrides: Partial<AWSCredentials> = {}): AWSCredentials => ({
+  accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+  secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  sessionToken: 'mock-session-token',
+  expiration: new Date(Date.now() + 3600 * 1000),
+  ...overrides,
+});
+
+/**
+ * Create expired AWS credentials
+ */
+export const mockExpiredAWSCredentials = (): AWSCredentials =>
+  mockAWSCredentials({
+    expiration: new Date(Date.now() - 1000),
+  });
+
+/**
+ * Create credentials expiring within the 5-minute buffer
+ */
+export const mockSoonExpiringAWSCredentials = (): AWSCredentials =>
+  mockAWSCredentials({
+    expiration: new Date(Date.now() + 2 * 60 * 1000), // 2 minutes from now
+  });
+
+// ============ Auth User Mocks ============
+
+/**
+ * Create a mock AuthUser
+ */
+export const mockAuthUser = (overrides: Partial<AuthUser> = {}): AuthUser => ({
+  id: 'apple-user-001',
+  email: 'test@example.com',
+  displayName: 'Test User',
+  authProvider: 'apple',
+  ...overrides,
+});
+
+/**
+ * Create a mock Apple sign-in credential response
+ */
+export const mockAppleCredential = (overrides: Record<string, any> = {}) => ({
+  user: 'apple-user-001',
+  email: 'test@example.com',
+  fullName: { givenName: 'Test', familyName: 'User' },
+  identityToken: 'mock-apple-identity-token',
+  authorizationCode: 'mock-auth-code',
+  ...overrides,
+});
+
+// ============ Cognito Response Mocks ============
+
+/**
+ * Create a mock Cognito GetCredentialsForIdentity response
+ */
+export const mockCognitoCredentialsResponse = () => ({
+  Credentials: {
+    AccessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    SecretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    SessionToken: 'mock-session-token',
+    Expiration: new Date(Date.now() + 3600 * 1000),
+  },
+});
+
+/**
+ * Create a mock Cognito GetId response
+ */
+export const mockCognitoGetIdResponse = (identityId: string = 'us-east-1:mock-identity') => ({
+  IdentityId: identityId,
+});
+
+// ============ Auth Backend Response Mocks ============
+
+/**
+ * Create a mock auth backend session response
+ */
+export const mockAuthBackendSession = () => ({
+  accessToken: 'mock-session-id',
+  refreshToken: 'mock-refresh-token',
+  expiresIn: 3600,
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    sessionToken: 'mock-session-token',
+    expiration: new Date(Date.now() + 3600 * 1000).toISOString(),
+  },
+  userId: 'apple-user-001',
+  cognitoIdentityId: 'us-east-1:mock-identity',
+});
+
+/**
+ * Create a mock auth backend refresh response
+ */
+export const mockAuthBackendRefreshResult = () => ({
+  accessToken: 'mock-session-id-refreshed',
+  expiresIn: 3600,
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    sessionToken: 'mock-session-token-refreshed',
+    expiration: new Date(Date.now() + 3600 * 1000).toISOString(),
+  },
+  userId: 'apple-user-001',
+  cognitoIdentityId: 'us-east-1:mock-identity',
+});

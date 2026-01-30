@@ -30,8 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# local env files (for local overrides)
+.env.local
+.env.*.local
 
 # typescript
 *.tsbuildinfo
@@ -40,8 +41,10 @@ yarn-error.*
 /ios
 /android
 
-# Environment files with secrets
+# Legacy environment file with hardcoded credentials (DEPRECATED)
+# NOTE: .env.development and .env.production are SAFE to commit
+# because they use Cognito Identity Pool IDs (not secrets)
 .env
 
-.claude/settings.local.json
+/.claude/settings.local.json
 coverage/

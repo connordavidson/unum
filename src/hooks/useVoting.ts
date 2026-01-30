@@ -10,6 +10,7 @@ import {
   castVote,
   removeVote,
   getVoteCountForUpload,
+  AuthenticationRequiredError,
   type VoteResult,
 } from '../api/clients/dynamodb.client';
 import { FEATURE_FLAGS } from '../shared/constants';
@@ -99,6 +100,10 @@ export function useVoting(options: UseVotingOptions = {}): UseVotingResult {
         userVote: result.userVote,
       });
     } catch (err) {
+      if (err instanceof AuthenticationRequiredError) {
+        console.warn('[useVoting] Session expired - user must sign in again to vote');
+        throw new Error('Your session has expired. Please sign in again to vote.');
+      }
       console.error('[useVoting] Failed to update vote:', err);
       throw err;
     } finally {
