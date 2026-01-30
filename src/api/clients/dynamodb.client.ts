@@ -21,7 +21,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { awsConfig, dynamoConfig } from '../config';
 import { withRetry } from './retry';
-import { getAWSCredentialsService } from '../../services/aws-credentials.service';
+import { getAWSCredentialsService, AuthenticationRequiredError } from '../../services/aws-credentials.service';
 import type {
   DynamoUploadItem,
   DynamoVoteItem,
@@ -31,11 +31,16 @@ import type {
 
 // ============ Client Setup ============
 
+// Re-export for callers that need to handle auth errors
+export { AuthenticationRequiredError } from '../../services/aws-credentials.service';
+
 // Cache for the document client - recreated when credentials change
 let cachedDocClient: DynamoDBDocumentClient | null = null;
 let cachedCredentialsExpiration: Date | null = null;
 let cachedReadOnlyDocClient: DynamoDBDocumentClient | null = null;
 let cachedReadOnlyCredentialsExpiration: Date | null = null;
+let cachedWriteDocClient: DynamoDBDocumentClient | null = null;
+let cachedWriteCredentialsExpiration: Date | null = null;
 
 /**
  * Get a DynamoDB Document Client with current credentials
@@ -113,6 +118,44 @@ async function getReadOnlyDocClient(): Promise<DynamoDBDocumentClient> {
   return cachedReadOnlyDocClient;
 }
 
+/**
+ * Get a DynamoDB Document Client that requires authenticated credentials.
+ * Use this for WRITE operations (PutItem, UpdateItem, DeleteItem, BatchWrite).
+ * Throws AuthenticationRequiredError if only guest/expired credentials are available.
+ */
+async function getWriteDocClient(): Promise<DynamoDBDocumentClient> {
+  const credentialsService = getAWSCredentialsService();
+  const credentials = await credentialsService.getAuthenticatedCredentials();
+
+  // Reuse cached client if credentials haven't changed
+  if (
+    cachedWriteDocClient &&
+    cachedWriteCredentialsExpiration &&
+    cachedWriteCredentialsExpiration.getTime() === credentials.expiration.getTime()
+  ) {
+    return cachedWriteDocClient;
+  }
+
+  // Create new client with authenticated credentials
+  const baseClient = new DynamoDBClient({
+    region: awsConfig.region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+
+  cachedWriteDocClient = DynamoDBDocumentClient.from(baseClient, {
+    marshallOptions: {
+      removeUndefinedValues: true,
+    },
+  });
+  cachedWriteCredentialsExpiration = credentials.expiration;
+
+  return cachedWriteDocClient;
+}
+
 // ============ Key Helpers ============
 
 export function createUploadPK(uploadId: string): string {
@@ -154,7 +197,7 @@ export function createUserSK(): string {
  */
 export async function createUpload(item: DynamoUploadItem): Promise<void> {
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -223,7 +266,7 @@ export async function updateUpload(
     expressionNames['#updatedAt'] = 'updatedAt';
     expressionValues[':updatedAt'] = new Date().toISOString();
 
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     const result = await docClient.send(
       new UpdateCommand({
         TableName: dynamoConfig.tableName,
@@ -250,7 +293,7 @@ export async function updateVoteCount(
   delta: number
 ): Promise<number> {
   return withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     const result = await docClient.send(
       new UpdateCommand({
         TableName: dynamoConfig.tableName,
@@ -278,7 +321,7 @@ export async function updateVoteCount(
  */
 export async function deleteUpload(uploadId: string): Promise<void> {
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new DeleteCommand({
         TableName: dynamoConfig.tableName,
@@ -432,7 +475,7 @@ export async function castVote(
   };
 
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -454,7 +497,7 @@ export async function removeVote(
   userId: string
 ): Promise<VoteResult> {
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new DeleteCommand({
         TableName: dynamoConfig.tableName,
@@ -609,7 +652,7 @@ export async function getVoteCountsForUploads(
  */
 export async function upsertVote(item: DynamoVoteItem): Promise<void> {
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -639,7 +682,7 @@ export async function deleteVote(
   identifier: string
 ): Promise<void> {
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new DeleteCommand({
         TableName: dynamoConfig.tableName,
@@ -728,7 +771,7 @@ export async function getVotesByDevice(
  */
 export async function createUser(item: DynamoUserItem): Promise<void> {
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     await docClient.send(
       new PutCommand({
         TableName: dynamoConfig.tableName,
@@ -796,7 +839,7 @@ export async function updateUser(
     expressionNames['#updatedAt'] = 'updatedAt';
     expressionValues[':updatedAt'] = new Date().toISOString();
 
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     const result = await docClient.send(
       new UpdateCommand({
         TableName: dynamoConfig.tableName,
@@ -875,7 +918,7 @@ export async function batchDelete(
   }
 
   await withRetry(async () => {
-    const docClient = await getDocClient();
+    const docClient = await getWriteDocClient();
     for (const batch of batches) {
       await docClient.send(
         new BatchWriteCommand({

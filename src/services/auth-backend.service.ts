@@ -14,35 +14,36 @@
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { AUTH_STORAGE_KEYS } from '../shared/constants';
+import { dedup } from '../shared/utils/dedup';
+import { getLoggingService } from './logging.service';
 
 const extra = Constants.expoConfig?.extra ?? {};
 const AUTH_API_URL = extra.authApiUrl || '';
-
-// Debug: Log the auth API URL on module load
-console.log('[AuthBackend] AUTH_API_URL configured:', AUTH_API_URL || '(empty)');
+const log = getLoggingService().createLogger('Auth');
 
 // ============ Types ============
 
-export interface AuthSession {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  credentials: AWSCredentials;
-  userId: string;
-  cognitoIdentityId: string;
-}
-
-export interface AWSCredentials {
+/** Wire format for AWS credentials from the auth backend API (expiration is ISO string) */
+export interface AWSCredentialsResponse {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken: string;
   expiration: string;
 }
 
+export interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  credentials: AWSCredentialsResponse;
+  userId: string;
+  cognitoIdentityId: string;
+}
+
 export interface RefreshResult {
   accessToken: string;
   expiresIn: number;
-  credentials: AWSCredentials;
+  credentials: AWSCredentialsResponse;
   userId: string;
   cognitoIdentityId: string;
 }
@@ -57,7 +58,7 @@ async function getStoredRefreshToken(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(AUTH_STORAGE_KEYS.REFRESH_TOKEN);
   } catch (error) {
-    console.error('[AuthBackend] Failed to get refresh token:', error);
+    log.error('Failed to get refresh token', error);
     return null;
   }
 }
@@ -66,7 +67,7 @@ async function clearRefreshToken(): Promise<void> {
   try {
     await SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.REFRESH_TOKEN);
   } catch (error) {
-    console.error('[AuthBackend] Failed to clear refresh token:', error);
+    log.error('Failed to clear refresh token', error);
   }
 }
 
@@ -78,7 +79,7 @@ async function getStoredSessionId(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(AUTH_STORAGE_KEYS.SESSION_ID);
   } catch (error) {
-    console.error('[AuthBackend] Failed to get session ID:', error);
+    log.error('Failed to get session ID', error);
     return null;
   }
 }
@@ -87,7 +88,7 @@ async function clearSessionId(): Promise<void> {
   try {
     await SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.SESSION_ID);
   } catch (error) {
-    console.error('[AuthBackend] Failed to clear session ID:', error);
+    log.error('Failed to clear session ID', error);
   }
 }
 
@@ -95,7 +96,6 @@ async function clearSessionId(): Promise<void> {
 
 class AuthBackendService {
   private session: AuthSession | null = null;
-  private refreshPromise: Promise<RefreshResult> | null = null;
 
   /**
    * Check if auth backend is configured
@@ -112,8 +112,7 @@ class AuthBackendService {
       throw new Error('[AuthBackend] Auth API URL not configured');
     }
 
-    console.log('[AuthBackend] Authenticating with Apple token...');
-    console.log('[AuthBackend] Calling:', `${AUTH_API_URL}/auth/apple`);
+    log.debug('Authenticating with Apple token...', { url: `${AUTH_API_URL}/auth/apple` });
 
     const response = await fetch(`${AUTH_API_URL}/auth/apple`, {
       method: 'POST',
@@ -121,11 +120,11 @@ class AuthBackendService {
       body: JSON.stringify({ identityToken }),
     });
 
-    console.log('[AuthBackend] Response status:', response.status);
+    log.debug('Response status', { status: response.status });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      console.error('[AuthBackend] Auth failed with status', response.status, error);
+      log.error('Auth failed', new Error(`Status ${response.status}: ${error.error}`));
       throw new Error(`[AuthBackend] Authentication failed: ${error.error || response.statusText}`);
     }
 
@@ -136,28 +135,15 @@ class AuthBackendService {
     await storeSessionId(session.accessToken);
 
     this.session = session;
-    console.log('[AuthBackend] Authentication successful, session expires in', session.expiresIn, 'seconds');
+    log.debug('Authentication successful', { expiresIn: session.expiresIn });
 
     return session;
   }
 
   /**
-   * Refresh the session using stored refresh token
+   * Refresh the session using stored refresh token (deduplicates concurrent calls)
    */
-  async refreshSession(): Promise<RefreshResult> {
-    // Prevent concurrent refreshes
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    this.refreshPromise = this.doRefresh();
-
-    try {
-      return await this.refreshPromise;
-    } finally {
-      this.refreshPromise = null;
-    }
-  }
+  refreshSession = dedup(() => this.doRefresh());
 
   private async doRefresh(): Promise<RefreshResult> {
     if (!AUTH_API_URL) {
@@ -169,7 +155,7 @@ class AuthBackendService {
       throw new Error('[AuthBackend] No refresh token available. User must sign in again.');
     }
 
-    console.log('[AuthBackend] Refreshing session...');
+    log.debug('Refreshing session...');
 
     const response = await fetch(`${AUTH_API_URL}/auth/refresh`, {
       method: 'POST',
@@ -182,7 +168,7 @@ class AuthBackendService {
 
       // If refresh token is invalid/expired, clear stored tokens
       if (response.status === 401) {
-        console.log('[AuthBackend] Refresh token expired, clearing tokens');
+        log.debug('Refresh token expired, clearing tokens');
         await this.clearSession();
         throw new Error(`[AuthBackend] Session expired: ${error.code || 'REAUTH_REQUIRED'}`);
       }
@@ -195,7 +181,7 @@ class AuthBackendService {
     // Update stored session ID
     await storeSessionId(result.accessToken);
 
-    console.log('[AuthBackend] Session refreshed successfully');
+    log.debug('Session refreshed successfully');
 
     return result;
   }
@@ -222,14 +208,14 @@ class AuthBackendService {
 
     if (refreshToken || sessionId) {
       try {
-        console.log('[AuthBackend] Logging out...');
+        log.debug('Logging out...');
         await fetch(`${AUTH_API_URL}/auth/logout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken, sessionId }),
         });
       } catch (error) {
-        console.error('[AuthBackend] Logout request failed:', error);
+        log.error('Logout request failed', error);
         // Continue with local cleanup even if server request fails
       }
     }

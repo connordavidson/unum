@@ -9,7 +9,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import * as Crypto from 'expo-crypto';
-import { FEATURE_FLAGS } from '../shared/constants';
+import { FEATURE_FLAGS, UPLOAD_CONFIG } from '../shared/constants';
 import { getUploadDataProvider } from '../providers/UploadDataProvider';
 import { getUploadService } from '../services/upload.service';
 import { getMediaService } from '../services/media.service';
@@ -103,12 +103,10 @@ export function useUploadData(): UseUploadDataResult {
       if (!currentUserId) {
         // Wait briefly for user ID initialization
         let waitTime = 0;
-        const maxWait = 3000;
-        const checkInterval = 100;
 
-        while (!userIdRef.current && waitTime < maxWait) {
-          await new Promise(resolve => setTimeout(resolve, checkInterval));
-          waitTime += checkInterval;
+        while (!userIdRef.current && waitTime < UPLOAD_CONFIG.USER_ID_WAIT_MS) {
+          await new Promise(resolve => setTimeout(resolve, UPLOAD_CONFIG.USER_ID_CHECK_INTERVAL_MS));
+          waitTime += UPLOAD_CONFIG.USER_ID_CHECK_INTERVAL_MS;
         }
 
         if (!userIdRef.current) {

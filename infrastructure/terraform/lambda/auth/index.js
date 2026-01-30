@@ -11,8 +11,9 @@
  */
 
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityClient, GetIdCommand, GetCredentialsForIdentityCommand } = require('@aws-sdk/client-cognito-identity');
+const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
 const crypto = require('crypto');
 
 // ============ Configuration ============
@@ -22,11 +23,13 @@ const COGNITO_IDENTITY_POOL_ID = process.env.COGNITO_IDENTITY_POOL_ID;
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || 'com.unum.app';
 const SESSION_TTL_DAYS = parseInt(process.env.SESSION_TTL_DAYS || '30', 10);
 const ACCESS_TOKEN_TTL_HOURS = 1; // AWS credentials last ~1 hour
+const AUTHENTICATED_ROLE_ARN = process.env.AUTHENTICATED_ROLE_ARN;
 
 // ============ Clients ============
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const cognitoClient = new CognitoIdentityClient({});
+const stsClient = new STSClient({});
 
 // ============ Helpers ============
 
@@ -63,6 +66,8 @@ async function createSession(userId, cognitoIdentityId, appleIdentityToken) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
+  const ttl = Math.floor(expiresAt.getTime() / 1000);
+
   const session = {
     PK: `SESSION#${sessionId}`,
     SK: `USER#${userId}`,
@@ -75,34 +80,56 @@ async function createSession(userId, cognitoIdentityId, appleIdentityToken) {
     appleIdentityToken, // Store for potential re-validation
     createdAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
-    ttl: Math.floor(expiresAt.getTime() / 1000), // DynamoDB TTL
+    ttl,
   };
 
-  await dynamoClient.send(new PutCommand({
-    TableName: DYNAMO_TABLE,
-    Item: session,
-  }));
+  // Secondary item for O(1) refresh token lookup (replaces table scan)
+  const refreshLookup = {
+    PK: `REFRESH#${refreshToken}`,
+    SK: `REFRESH#${refreshToken}`,
+    sessionId,
+    userId,
+    ttl,
+  };
+
+  await Promise.all([
+    dynamoClient.send(new PutCommand({ TableName: DYNAMO_TABLE, Item: session })),
+    dynamoClient.send(new PutCommand({ TableName: DYNAMO_TABLE, Item: refreshLookup })),
+  ]);
 
   return { sessionId, refreshToken, expiresAt };
 }
 
 async function getSessionByRefreshToken(refreshToken) {
-  // Scan for session by refresh token
-  // Note: In production with many sessions, add a GSI on refreshToken for efficiency
-  const result = await dynamoClient.send(new ScanCommand({
+  // Look up the refresh token pointer item (O(1) instead of table scan)
+  const lookupResult = await dynamoClient.send(new GetCommand({
     TableName: DYNAMO_TABLE,
-    FilterExpression: 'refreshToken = :refreshToken AND begins_with(PK, :sessionPrefix)',
-    ExpressionAttributeValues: {
-      ':refreshToken': refreshToken,
-      ':sessionPrefix': 'SESSION#',
+    Key: {
+      PK: `REFRESH#${refreshToken}`,
+      SK: `REFRESH#${refreshToken}`,
     },
   }));
 
-  if (!result.Items || result.Items.length === 0) {
+  if (!lookupResult.Item) {
     return null;
   }
 
-  const session = result.Items[0];
+  const { sessionId, userId } = lookupResult.Item;
+
+  // Fetch the full session item
+  const sessionResult = await dynamoClient.send(new GetCommand({
+    TableName: DYNAMO_TABLE,
+    Key: {
+      PK: `SESSION#${sessionId}`,
+      SK: `USER#${userId}`,
+    },
+  }));
+
+  if (!sessionResult.Item) {
+    return null;
+  }
+
+  const session = sessionResult.Item;
 
   // Check if expired
   if (new Date(session.expiresAt) < new Date()) {
@@ -112,14 +139,28 @@ async function getSessionByRefreshToken(refreshToken) {
   return session;
 }
 
-async function deleteSession(sessionId, userId) {
-  await dynamoClient.send(new DeleteCommand({
-    TableName: DYNAMO_TABLE,
-    Key: {
-      PK: `SESSION#${sessionId}`,
-      SK: `USER#${userId}`,
-    },
-  }));
+async function deleteSession(sessionId, userId, refreshToken) {
+  const deletes = [
+    dynamoClient.send(new DeleteCommand({
+      TableName: DYNAMO_TABLE,
+      Key: {
+        PK: `SESSION#${sessionId}`,
+        SK: `USER#${userId}`,
+      },
+    })),
+  ];
+
+  if (refreshToken) {
+    deletes.push(dynamoClient.send(new DeleteCommand({
+      TableName: DYNAMO_TABLE,
+      Key: {
+        PK: `REFRESH#${refreshToken}`,
+        SK: `REFRESH#${refreshToken}`,
+      },
+    })));
+  }
+
+  await Promise.all(deletes);
 }
 
 // ============ Cognito ============
@@ -151,6 +192,34 @@ async function getCognitoCredentials(appleIdentityToken) {
       sessionToken: credentialsResponse.Credentials.SessionToken,
       expiration: credentialsResponse.Credentials.Expiration.toISOString(),
     },
+  };
+}
+
+// ============ STS Fallback ============
+
+/**
+ * Get authenticated credentials via STS AssumeRole.
+ * Used when the stored Apple identity token has expired and Cognito
+ * can't issue authenticated credentials directly.
+ * The Lambda has already verified the user via their refresh token,
+ * so it's authorized to issue authenticated-role credentials.
+ */
+async function getCredentialsViaSTS(userId) {
+  if (!AUTHENTICATED_ROLE_ARN) {
+    throw new Error('AUTHENTICATED_ROLE_ARN not configured');
+  }
+
+  const assumeRoleResponse = await stsClient.send(new AssumeRoleCommand({
+    RoleArn: AUTHENTICATED_ROLE_ARN,
+    RoleSessionName: `refresh-${userId.substring(0, 32)}`,
+    DurationSeconds: ACCESS_TOKEN_TTL_HOURS * 60 * 60,
+  }));
+
+  return {
+    accessKeyId: assumeRoleResponse.Credentials.AccessKeyId,
+    secretAccessKey: assumeRoleResponse.Credentials.SecretAccessKey,
+    sessionToken: assumeRoleResponse.Credentials.SessionToken,
+    expiration: assumeRoleResponse.Credentials.Expiration.toISOString(),
   };
 }
 
@@ -224,29 +293,21 @@ async function handleRefresh(body) {
     let identityId = session.cognitoIdentityId;
 
     try {
-      // Try with stored Apple token first
+      // Try with stored Apple token first (works if token hasn't expired ~10 min)
       const result = await getCognitoCredentials(session.appleIdentityToken);
       credentials = result.credentials;
       identityId = result.identityId;
     } catch (cognitoError) {
-      console.log('Cognito refresh with Apple token failed, trying with identity ID only');
+      console.log('Cognito refresh with Apple token failed, trying STS AssumeRole');
 
-      // Try getting credentials with just the identity ID
-      // This works if Cognito has cached the authentication
+      // Apple token expired. Use STS AssumeRole to issue authenticated credentials.
+      // The Lambda has already verified the user via their refresh token (30-day TTL),
+      // so it's authorized to issue authenticated-role credentials on the user's behalf.
       try {
-        const credentialsResponse = await cognitoClient.send(new GetCredentialsForIdentityCommand({
-          IdentityId: identityId,
-          // No Logins - relying on Cognito's memory of previous auth
-        }));
-
-        credentials = {
-          accessKeyId: credentialsResponse.Credentials.AccessKeyId,
-          secretAccessKey: credentialsResponse.Credentials.SecretKey,
-          sessionToken: credentialsResponse.Credentials.SessionToken,
-          expiration: credentialsResponse.Credentials.Expiration.toISOString(),
-        };
-      } catch (fallbackError) {
-        console.error('Cognito fallback also failed:', fallbackError);
+        credentials = await getCredentialsViaSTS(session.userId);
+        console.log('Issued credentials via STS AssumeRole for user:', session.userId);
+      } catch (stsError) {
+        console.error('STS AssumeRole fallback failed:', stsError);
         return response(401, {
           error: 'Session expired',
           code: 'REAUTH_REQUIRED',
@@ -274,13 +335,13 @@ async function handleLogout(body) {
   const { refreshToken, sessionId, userId } = body;
 
   if (refreshToken) {
-    // Look up and delete session by refresh token
+    // Look up and delete session + refresh token lookup item
     const session = await getSessionByRefreshToken(refreshToken);
     if (session) {
-      await deleteSession(session.sessionId, session.userId);
+      await deleteSession(session.sessionId, session.userId, refreshToken);
     }
   } else if (sessionId && userId) {
-    // Delete by session ID directly
+    // Delete by session ID directly (orphaned refresh token item will expire via TTL)
     await deleteSession(sessionId, userId);
   }
 

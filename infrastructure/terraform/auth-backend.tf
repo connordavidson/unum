@@ -18,11 +18,12 @@ resource "aws_lambda_function" "auth" {
 
   environment {
     variables = {
-      DYNAMO_TABLE            = var.dynamo_table_name
-      COGNITO_IDENTITY_POOL_ID = var.cognito_identity_pool_id
-      AWS_REGION_NAME         = var.aws_region
-      APPLE_BUNDLE_ID         = var.apple_service_id
-      SESSION_TTL_DAYS        = "30"
+      DYNAMO_TABLE              = var.dynamo_table_name
+      COGNITO_IDENTITY_POOL_ID  = var.cognito_identity_pool_id
+      AWS_REGION_NAME           = var.aws_region
+      APPLE_BUNDLE_ID           = var.apple_service_id
+      SESSION_TTL_DAYS          = "30"
+      AUTHENTICATED_ROLE_ARN    = aws_iam_role.cognito_authenticated.arn
     }
   }
 
@@ -91,6 +92,12 @@ resource "aws_iam_role_policy" "auth_lambda" {
           "cognito-identity:GetCredentialsForIdentity"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "STSAssumeAuthenticatedRole"
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
+        Resource = aws_iam_role.cognito_authenticated.arn
       }
     ]
   })

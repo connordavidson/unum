@@ -167,6 +167,22 @@ export const AUTH_STORAGE_KEYS = {
   REFRESH_TOKEN: 'unum_refresh_token',
   /** Session ID from auth backend (stored in SecureStore) */
   SESSION_ID: 'unum_session_id',
+  /** Cognito Identity ID (stored in SecureStore) */
+  COGNITO_IDENTITY_ID: 'unum_cognito_identity_id',
+};
+
+// ============ Credential Configuration ============
+export const CREDENTIAL_CONFIG = {
+  /** How far before expiration to consider credentials expired (ms) */
+  EXPIRATION_BUFFER_MS: 5 * 60 * 1000, // 5 minutes
+};
+
+// ============ Upload Configuration ============
+export const UPLOAD_CONFIG = {
+  /** Max time to wait for user ID initialization before upload (ms) */
+  USER_ID_WAIT_MS: 3000,
+  /** Polling interval when waiting for user ID (ms) */
+  USER_ID_CHECK_INTERVAL_MS: 100,
 };
 
 // ============ Migration Configuration ============

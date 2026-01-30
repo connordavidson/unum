@@ -294,35 +294,29 @@ export async function loadStoredAuth(): Promise<AuthUser | null> {
       return null;
     }
 
-    // Verify credentials are still valid
+    // Verify Apple credential is still valid (local Keychain check).
+    // Only sign out on explicit revocation or not-found — transient errors
+    // should not force re-authentication.
     const credentialState = await checkCredentialState(userId);
-    if (credentialState !== 'authorized') {
-      console.log('[AuthService] Stored credentials no longer valid, clearing');
+    if (credentialState === 'revoked' || credentialState === 'not_found') {
+      console.log('[AuthService] Apple credential', credentialState, '- signing out');
       await signOut();
       return null;
     }
 
-    // Restore AWS credentials - try auth backend first (uses refresh tokens)
-    console.log('[AuthService] loadStoredAuth - checking AWS backend:', FEATURE_FLAGS.USE_AWS_BACKEND);
+    // Restore AWS credentials in the background (best-effort).
+    // User identity is determined by Apple credential state above, not by
+    // whether AWS credential restoration succeeds on this particular startup.
+    // Write operations call getCredentials() on-demand when they need auth.
     if (FEATURE_FLAGS.USE_AWS_BACKEND) {
       const credentialsService = getAWSCredentialsService();
-
-      // getCredentials will automatically try auth backend refresh, then fall back to other methods
       try {
-        console.log('[AuthService] Trying to restore AWS credentials...');
+        console.log('[AuthService] Restoring AWS credentials...');
         await credentialsService.getCredentials();
-
-        // Check if we got authenticated credentials (not just guest/read-only)
-        if (!credentialsService.hasAuthenticatedCredentials) {
-          console.log('[AuthService] Only got read-only credentials - session expired, clearing auth');
-          await signOut();
-          return null;
-        }
-
-        console.log('[AuthService] AWS credentials restored successfully (authenticated)');
+        console.log('[AuthService] AWS credentials restored:', credentialsService.hasAuthenticatedCredentials ? 'authenticated' : 'guest');
       } catch (credentialsError) {
         console.log('[AuthService] Could not restore AWS credentials:', credentialsError instanceof Error ? credentialsError.message : credentialsError);
-        // User will need to sign in again for AWS operations, but can still use app locally
+        // Not fatal — user stays logged in, write operations will retry or prompt re-auth
       }
     }
 

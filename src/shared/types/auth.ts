@@ -28,6 +28,13 @@ export interface AuthState {
   error: string | null;
 }
 
+export interface AWSCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+  expiration: Date;
+}
+
 export interface StoredAuthData {
   /** Apple user ID */
   userId: string;

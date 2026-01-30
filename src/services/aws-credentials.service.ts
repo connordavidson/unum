@@ -24,28 +24,66 @@ import {
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { getAuthBackendService } from './auth-backend.service';
+import { dedup } from '../shared/utils/dedup';
+import { getLoggingService } from './logging.service';
+import { AUTH_STORAGE_KEYS, CREDENTIAL_CONFIG } from '../shared/constants';
+import type { AWSCredentials } from '../shared/types/auth';
+
+export type { AWSCredentials } from '../shared/types/auth';
 
 const extra = Constants.expoConfig?.extra ?? {};
+const log = getLoggingService().createLogger('Auth');
 
-// Debug: Check if auth backend URL is configured
-console.log('[AWSCredentials] Auth backend URL from config:', extra.authApiUrl || '(not set)');
+// ============ Errors ============
 
-const COGNITO_IDENTITY_ID_KEY = 'unum_cognito_identity_id';
+/**
+ * Thrown when an operation requires authenticated credentials
+ * but only guest or expired credentials are available.
+ * Callers should catch this and prompt the user to sign in again.
+ */
+export class AuthenticationRequiredError extends Error {
+  constructor(message = 'Authentication required. Please sign in again.') {
+    super(message);
+    this.name = 'AuthenticationRequiredError';
+  }
+}
 
 // ============ Types ============
 
-export interface AWSCredentials {
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken: string;
-  expiration: Date;
-}
+/**
+ * Credential access level - tracks what kind of credentials we have.
+ * - not_initialized: No credentials obtained yet. getCredentials() will attempt restoration.
+ * - authenticated: Full read-write credentials (via auth backend or direct Cognito with Apple token).
+ * - guest: Read-only credentials (unauthenticated Cognito role).
+ * - expired: All restoration methods failed. User must re-authenticate.
+ */
+type AccessLevel = 'not_initialized' | 'authenticated' | 'guest' | 'expired';
 
 export interface CredentialStatus {
   isAuthenticated: boolean;
   identityId: string | null;
   expiresAt: Date | null;
   isExpired: boolean;
+}
+
+// ============ Helpers ============
+
+/**
+ * Parse Cognito SDK credentials response into our AWSCredentials type.
+ * Returns null if the response is missing required fields.
+ */
+function parseCognitoCredentials(
+  creds: { AccessKeyId?: string; SecretKey?: string; SessionToken?: string; Expiration?: Date } | undefined
+): AWSCredentials | null {
+  if (!creds?.AccessKeyId || !creds?.SecretKey || !creds?.SessionToken) {
+    return null;
+  }
+  return {
+    accessKeyId: creds.AccessKeyId,
+    secretAccessKey: creds.SecretKey,
+    sessionToken: creds.SessionToken,
+    expiration: creds.Expiration || new Date(Date.now() + 3600 * 1000),
+  };
 }
 
 // ============ Service ============
@@ -55,13 +93,8 @@ class AWSCredentialsService {
   private identityId: string | null = null;
   private appleIdToken: string | null = null;
   private cognitoClient: CognitoIdentityClient;
-  private refreshPromise: Promise<AWSCredentials> | null = null;
   private restorationPromise: Promise<AWSCredentials | null> | null = null;
-  private unauthCredentialsPromise: Promise<boolean> | null = null;
-  private initialized: boolean = false;
-  private restorationAttempted: boolean = false;
-  private _needsReauthentication: boolean = false;
-  private _isAuthenticatedCredentials: boolean = false;
+  private accessLevel: AccessLevel = 'not_initialized';
 
   constructor() {
     this.cognitoClient = new CognitoIdentityClient({
@@ -74,10 +107,10 @@ class AWSCredentialsService {
    */
   private async storeIdentityId(identityId: string): Promise<void> {
     try {
-      await SecureStore.setItemAsync(COGNITO_IDENTITY_ID_KEY, identityId);
-      console.log('[AWSCredentials] Identity ID stored');
+      await SecureStore.setItemAsync(AUTH_STORAGE_KEYS.COGNITO_IDENTITY_ID, identityId);
+      log.debug('Identity ID stored');
     } catch (error) {
-      console.error('[AWSCredentials] Failed to store identity ID:', error);
+      log.error('Failed to store identity ID', error);
     }
   }
 
@@ -86,9 +119,9 @@ class AWSCredentialsService {
    */
   private async loadStoredIdentityId(): Promise<string | null> {
     try {
-      return await SecureStore.getItemAsync(COGNITO_IDENTITY_ID_KEY);
+      return await SecureStore.getItemAsync(AUTH_STORAGE_KEYS.COGNITO_IDENTITY_ID);
     } catch (error) {
-      console.error('[AWSCredentials] Failed to load identity ID:', error);
+      log.error('Failed to load identity ID', error);
       return null;
     }
   }
@@ -98,9 +131,9 @@ class AWSCredentialsService {
    */
   private async clearStoredIdentityId(): Promise<void> {
     try {
-      await SecureStore.deleteItemAsync(COGNITO_IDENTITY_ID_KEY);
+      await SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.COGNITO_IDENTITY_ID);
     } catch (error) {
-      console.error('[AWSCredentials] Failed to clear identity ID:', error);
+      log.error('Failed to clear identity ID', error);
     }
   }
 
@@ -109,11 +142,6 @@ class AWSCredentialsService {
    * Call this before any AWS operation
    */
   async getCredentials(): Promise<AWSCredentials> {
-    // If currently refreshing, wait for that to complete
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
     // If currently restoring, wait for that to complete
     if (this.restorationPromise) {
       const result = await this.restorationPromise;
@@ -128,10 +156,9 @@ class AWSCredentialsService {
       return this.credentials;
     }
 
-    // If not initialized and haven't tried restoration yet, try to restore from auth backend
-    if (!this.initialized && !this.restorationAttempted) {
-      this.restorationAttempted = true;
-      console.log('[AWSCredentials] Not initialized, trying to restore from auth backend...');
+    // If not initialized, try to restore credentials from stored session
+    if (this.accessLevel === 'not_initialized') {
+      log.debug('Not initialized, trying to restore from auth backend...');
 
       // Store the restoration promise so concurrent calls wait
       this.restorationPromise = this.doRestoration();
@@ -146,11 +173,11 @@ class AWSCredentialsService {
       }
 
       // Restoration failed - mark that we need re-authentication
-      this._needsReauthentication = true;
+      this.accessLevel = 'expired';
     }
 
-    // If we already know we need re-auth but have no Apple token, try unauthenticated access
-    if (this._needsReauthentication && !this.appleIdToken) {
+    // If expired and no Apple token available, try unauthenticated access
+    if (this.accessLevel === 'expired' && !this.appleIdToken) {
       // Try unauthenticated credentials for read-only access
       const unauthSuccess = await this.getUnauthenticatedCredentials();
       if (unauthSuccess && this.credentials) {
@@ -173,14 +200,14 @@ class AWSCredentialsService {
     }
 
     // Auth backend restoration failed - try legacy Cognito method
-    console.log('[AWSCredentials] Auth backend restore failed, trying legacy Cognito method...');
+    log.debug('Auth backend restore failed, trying legacy Cognito method...');
     const legacyRestored = await this.tryRestoreFromStoredIdentity();
     if (legacyRestored && this.credentials && this.isValid()) {
       return this.credentials;
     }
 
     // All authenticated methods failed - try unauthenticated access
-    console.log('[AWSCredentials] Authenticated restore failed, trying unauthenticated access...');
+    log.debug('Authenticated restore failed, trying unauthenticated access...');
     const unauthRestored = await this.getUnauthenticatedCredentials();
     if (unauthRestored && this.credentials && this.isValid()) {
       return this.credentials;
@@ -209,24 +236,47 @@ class AWSCredentialsService {
   }
 
   /**
+   * Get authenticated credentials for write operations.
+   * Unlike getCredentials(), this will NOT fall back to guest credentials.
+   * Throws AuthenticationRequiredError if authenticated credentials are unavailable.
+   */
+  async getAuthenticatedCredentials(): Promise<AWSCredentials> {
+    // If currently restoring, wait for that to complete
+    if (this.restorationPromise) {
+      await this.restorationPromise;
+    }
+
+    // Return cached authenticated credentials if valid
+    if (this.accessLevel === 'authenticated' && this.credentials && this.isValid()) {
+      return this.credentials;
+    }
+
+    // If not initialized, try restoration (but only accept authenticated result)
+    if (this.accessLevel === 'not_initialized') {
+      log.debug('Not initialized, trying to restore authenticated credentials...');
+
+      this.restorationPromise = this.doRestoration();
+      try {
+        await this.restorationPromise;
+      } finally {
+        this.restorationPromise = null;
+      }
+
+      if (this.accessLevel === 'authenticated' && this.credentials && this.isValid()) {
+        return this.credentials;
+      }
+    }
+
+    // If we only have guest or expired credentials, the user must re-authenticate
+    throw new AuthenticationRequiredError();
+  }
+
+  /**
    * Get unauthenticated (guest) credentials for read-only access
    * This allows users to view content without signing in
    * Deduplicates concurrent requests to prevent multiple Cognito identity creations
    */
-  async getUnauthenticatedCredentials(): Promise<boolean> {
-    // Deduplicate concurrent requests - all callers wait for the same promise
-    if (this.unauthCredentialsPromise) {
-      console.log('[AWSCredentials] Waiting for existing unauthenticated credentials request...');
-      return this.unauthCredentialsPromise;
-    }
-
-    this.unauthCredentialsPromise = this.doGetUnauthenticatedCredentials();
-    try {
-      return await this.unauthCredentialsPromise;
-    } finally {
-      this.unauthCredentialsPromise = null;
-    }
-  }
+  getUnauthenticatedCredentials = dedup(() => this.doGetUnauthenticatedCredentials());
 
   /**
    * Actually fetch unauthenticated credentials from Cognito
@@ -235,11 +285,11 @@ class AWSCredentialsService {
     const identityPoolId = extra.cognitoIdentityPoolId;
 
     if (!identityPoolId) {
-      console.log('[AWSCredentials] No identity pool configured for unauthenticated access');
+      log.debug('No identity pool configured for unauthenticated access');
       return false;
     }
 
-    console.log('[AWSCredentials] Getting unauthenticated credentials...');
+    log.debug('Getting unauthenticated credentials...');
 
     try {
       // Get anonymous identity ID
@@ -251,12 +301,12 @@ class AWSCredentialsService {
       );
 
       if (!idResponse.IdentityId) {
-        console.log('[AWSCredentials] Failed to get unauthenticated identity ID');
+        log.debug('Failed to get unauthenticated identity ID');
         return false;
       }
 
       const unauthIdentityId = idResponse.IdentityId;
-      console.log('[AWSCredentials] Got unauthenticated identity ID:', unauthIdentityId);
+      log.debug('Got unauthenticated identity ID', { identityId: unauthIdentityId });
 
       // Get credentials for unauthenticated identity
       const credentialsResponse = await this.cognitoClient.send(
@@ -266,28 +316,21 @@ class AWSCredentialsService {
         })
       );
 
-      const creds = credentialsResponse.Credentials;
-      if (!creds?.AccessKeyId || !creds?.SecretKey || !creds?.SessionToken) {
-        console.log('[AWSCredentials] Incomplete unauthenticated credentials returned');
+      const parsed = parseCognitoCredentials(credentialsResponse.Credentials);
+      if (!parsed) {
+        log.debug('Incomplete unauthenticated credentials returned');
         return false;
       }
 
-      this.credentials = {
-        accessKeyId: creds.AccessKeyId,
-        secretAccessKey: creds.SecretKey,
-        sessionToken: creds.SessionToken,
-        expiration: creds.Expiration || new Date(Date.now() + 3600 * 1000),
-      };
+      this.credentials = parsed;
 
       // Don't store this identity ID - it's ephemeral for unauthenticated users
-      this.initialized = true;
-      this._needsReauthentication = false;
-      this._isAuthenticatedCredentials = false; // Guest credentials - read-only
+      this.accessLevel = 'guest';
 
-      console.log('[AWSCredentials] Got unauthenticated credentials (read-only), expires:', this.credentials.expiration.toISOString());
+      log.debug('Got unauthenticated credentials (read-only)', { expires: this.credentials.expiration.toISOString() });
       return true;
     } catch (error) {
-      console.log('[AWSCredentials] Failed to get unauthenticated credentials:', error instanceof Error ? error.message : error);
+      log.debug('Failed to get unauthenticated credentials', { error: error instanceof Error ? error.message : String(error) });
       return false;
     }
   }
@@ -300,17 +343,17 @@ class AWSCredentialsService {
     const authBackend = getAuthBackendService();
 
     if (!authBackend.isConfigured()) {
-      console.log('[AWSCredentials] Auth backend not configured');
+      log.debug('Auth backend not configured');
       return false;
     }
 
     const hasSession = await authBackend.hasStoredSession();
     if (!hasSession) {
-      console.log('[AWSCredentials] No stored auth backend session');
+      log.debug('No stored auth backend session');
       return false;
     }
 
-    console.log('[AWSCredentials] Trying to restore credentials via auth backend...');
+    log.debug('Trying to restore credentials via auth backend...');
 
     try {
       const result = await authBackend.refreshSession();
@@ -322,18 +365,15 @@ class AWSCredentialsService {
         expiration: new Date(result.credentials.expiration),
       };
       this.identityId = result.cognitoIdentityId;
-      this.initialized = true;
-      this._needsReauthentication = false;
-      this._isAuthenticatedCredentials = true; // Full read-write access
+      this.accessLevel = 'authenticated';
 
       // Store identity ID for future use
       await this.storeIdentityId(this.identityId);
 
-      console.log('[AWSCredentials] Successfully restored credentials via auth backend (authenticated)!');
-      console.log('[AWSCredentials] Expires:', this.credentials.expiration.toISOString());
+      log.debug('Restored credentials via auth backend (authenticated)', { expires: this.credentials.expiration.toISOString() });
       return true;
     } catch (error) {
-      console.log('[AWSCredentials] Auth backend refresh failed:', error instanceof Error ? error.message : error);
+      log.debug('Auth backend refresh failed', { error: error instanceof Error ? error.message : String(error) });
       return false;
     }
   }
@@ -342,7 +382,7 @@ class AWSCredentialsService {
    * Check if the user needs to re-authenticate to use AWS
    */
   get needsReauthentication(): boolean {
-    return this._needsReauthentication;
+    return this.accessLevel === 'expired';
   }
 
   /**
@@ -350,7 +390,7 @@ class AWSCredentialsService {
    * Used to determine if user can perform write operations
    */
   get hasAuthenticatedCredentials(): boolean {
-    return this._isAuthenticatedCredentials;
+    return this.accessLevel === 'authenticated';
   }
 
   /**
@@ -361,16 +401,14 @@ class AWSCredentialsService {
     this.appleIdToken = appleIdToken;
     this.credentials = null;
     this.identityId = null;
-    this.initialized = true;
-    this.restorationAttempted = false;
-    this._needsReauthentication = false;
+    this.accessLevel = 'expired'; // Transitional: no valid credentials yet, will obtain below
 
     // Try auth backend first (provides refresh tokens)
     const authBackend = getAuthBackendService();
-    console.log('[AWSCredentials] Auth backend configured?', authBackend.isConfigured());
+    log.debug('Auth backend configured?', { configured: authBackend.isConfigured() });
     if (authBackend.isConfigured()) {
       try {
-        console.log('[AWSCredentials] Authenticating via auth backend...');
+        log.debug('Authenticating via auth backend...');
         const session = await authBackend.authenticateWithApple(appleIdToken);
 
         this.credentials = {
@@ -380,20 +418,19 @@ class AWSCredentialsService {
           expiration: new Date(session.credentials.expiration),
         };
         this.identityId = session.cognitoIdentityId;
-        this._isAuthenticatedCredentials = true; // Full read-write access
+        this.accessLevel = 'authenticated';
 
         // Store identity ID for fallback
         await this.storeIdentityId(this.identityId);
 
-        console.log('[AWSCredentials] Authenticated via auth backend (full access), credentials expire:', this.credentials.expiration.toISOString());
+        log.debug('Authenticated via auth backend (full access)', { expires: this.credentials.expiration.toISOString() });
         return this.credentials;
       } catch (backendError) {
-        console.error('[AWSCredentials] Auth backend failed, falling back to direct Cognito');
-        console.error('[AWSCredentials] Backend error:', backendError instanceof Error ? backendError.message : backendError);
+        log.error('Auth backend failed, falling back to direct Cognito', backendError);
         // Fall through to direct Cognito method
       }
     } else {
-      console.log('[AWSCredentials] Auth backend not configured, using direct Cognito');
+      log.debug('Auth backend not configured, using direct Cognito');
     }
 
     // Fallback: direct Cognito (no refresh tokens)
@@ -408,11 +445,11 @@ class AWSCredentialsService {
   async tryRestoreFromStoredIdentity(): Promise<boolean> {
     const storedIdentityId = await this.loadStoredIdentityId();
     if (!storedIdentityId) {
-      console.log('[AWSCredentials] No stored identity ID found');
+      log.debug('No stored identity ID found');
       return false;
     }
 
-    console.log('[AWSCredentials] Trying to restore credentials with stored identity ID...');
+    log.debug('Trying to restore credentials with stored identity ID...');
     this.identityId = storedIdentityId;
 
     try {
@@ -425,26 +462,19 @@ class AWSCredentialsService {
         })
       );
 
-      const creds = credentialsResponse.Credentials;
-      if (!creds?.AccessKeyId || !creds?.SecretKey || !creds?.SessionToken) {
-        console.log('[AWSCredentials] Incomplete credentials returned');
+      const parsed = parseCognitoCredentials(credentialsResponse.Credentials);
+      if (!parsed) {
+        log.debug('Incomplete credentials returned');
         return false;
       }
 
-      this.credentials = {
-        accessKeyId: creds.AccessKeyId,
-        secretAccessKey: creds.SecretKey,
-        sessionToken: creds.SessionToken,
-        expiration: creds.Expiration || new Date(Date.now() + 3600 * 1000),
-      };
+      this.credentials = parsed;
 
-      this.initialized = true;
-      this._isAuthenticatedCredentials = true; // Using authenticated identity
-      console.log('[AWSCredentials] Successfully restored credentials without Apple token (authenticated)!');
-      console.log('[AWSCredentials] Expires:', this.credentials.expiration.toISOString());
+      this.accessLevel = 'guest'; // Without Logins map, Cognito returns unauthenticated role credentials
+      log.debug('Restored credentials without Apple token (read-only)', { expires: this.credentials.expiration.toISOString() });
       return true;
     } catch (error) {
-      console.log('[AWSCredentials] Could not restore without Apple token:', error instanceof Error ? error.message : error);
+      log.debug('Could not restore without Apple token', { error: error instanceof Error ? error.message : String(error) });
       // Clear the identity ID since we can't use it
       this.identityId = null;
       return false;
@@ -459,20 +489,13 @@ class AWSCredentialsService {
   }
 
   /**
-   * Check if credentials are currently being restored
-   */
-  isRestoring(): boolean {
-    return this.restorationPromise !== null;
-  }
-
-  /**
    * Wait for any ongoing restoration to complete
    * Returns true if credentials are available after waiting
    */
   async waitForReady(): Promise<boolean> {
     // If currently restoring, wait for it
     if (this.restorationPromise) {
-      console.log('[AWSCredentials] Waiting for restoration to complete...');
+      log.debug('Waiting for restoration to complete...');
       try {
         await this.restorationPromise;
       } catch {
@@ -485,8 +508,8 @@ class AWSCredentialsService {
       return true;
     }
 
-    // If not initialized, try to get credentials (will attempt restoration or unauthenticated)
-    if (!this.initialized) {
+    // If not initialized or expired, try to get credentials (will attempt restoration or unauthenticated)
+    if (this.accessLevel === 'not_initialized' || this.accessLevel === 'expired') {
       try {
         await this.getCredentials();
         return this.hasValidCredentials();
@@ -503,7 +526,7 @@ class AWSCredentialsService {
    */
   getStatus(): CredentialStatus {
     return {
-      isAuthenticated: this.appleIdToken !== null,
+      isAuthenticated: this.accessLevel === 'authenticated',
       identityId: this.identityId,
       expiresAt: this.credentials?.expiration || null,
       isExpired: this.credentials ? !this.isValid() : true,
@@ -514,44 +537,26 @@ class AWSCredentialsService {
    * Clear all credentials (call on sign-out)
    */
   async clearCredentials(): Promise<void> {
-    console.log('[AWSCredentials] Clearing credentials');
+    log.debug('Clearing credentials');
     this.credentials = null;
     this.identityId = null;
     this.appleIdToken = null;
-    this.refreshPromise = null;
     this.restorationPromise = null;
-    this.initialized = false;
-    this.restorationAttempted = false;
-    this._needsReauthentication = false;
-    this._isAuthenticatedCredentials = false;
+    this.accessLevel = 'not_initialized';
     await this.clearStoredIdentityId();
 
     // Clear auth backend session
     try {
       await getAuthBackendService().logout();
     } catch (error) {
-      console.error('[AWSCredentials] Failed to logout from auth backend:', error);
+      log.error('Failed to logout from auth backend', error);
     }
   }
 
   /**
-   * Refresh credentials from Cognito
+   * Refresh credentials from Cognito (deduplicates concurrent calls)
    */
-  private async refresh(): Promise<AWSCredentials> {
-    // Prevent concurrent refreshes
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    this.refreshPromise = this.doRefresh();
-
-    try {
-      const result = await this.refreshPromise;
-      return result;
-    } finally {
-      this.refreshPromise = null;
-    }
-  }
+  private refresh = dedup(() => this.doRefresh());
 
   private async doRefresh(): Promise<AWSCredentials> {
     const identityPoolId = extra.cognitoIdentityPoolId;
@@ -569,7 +574,7 @@ class AWSCredentialsService {
       );
     }
 
-    console.log('[AWSCredentials] Refreshing credentials...');
+    log.debug('Refreshing credentials...');
 
     try {
       // Build logins map for Apple Sign-In
@@ -579,7 +584,7 @@ class AWSCredentialsService {
 
       // Step 1: Get Cognito identity ID (or use cached)
       if (!this.identityId) {
-        console.log('[AWSCredentials] Getting Cognito identity ID...');
+        log.debug('Getting Cognito identity ID...');
         const idResponse = await this.cognitoClient.send(
           new GetIdCommand({
             IdentityPoolId: identityPoolId,
@@ -592,13 +597,13 @@ class AWSCredentialsService {
         }
 
         this.identityId = idResponse.IdentityId;
-        console.log('[AWSCredentials] Got identity ID:', this.identityId);
+        log.debug('Got identity ID', { identityId: this.identityId });
         // Store for future session restoration
         await this.storeIdentityId(this.identityId);
       }
 
       // Step 2: Get temporary AWS credentials
-      console.log('[AWSCredentials] Getting temporary credentials...');
+      log.debug('Getting temporary credentials...');
       const credentialsResponse = await this.cognitoClient.send(
         new GetCredentialsForIdentityCommand({
           IdentityId: this.identityId,
@@ -606,31 +611,23 @@ class AWSCredentialsService {
         })
       );
 
-      const creds = credentialsResponse.Credentials;
-      if (!creds?.AccessKeyId || !creds?.SecretKey || !creds?.SessionToken) {
+      const parsed = parseCognitoCredentials(credentialsResponse.Credentials);
+      if (!parsed) {
         throw new Error('[AWSCredentials] Incomplete credentials returned from Cognito');
       }
 
-      this.credentials = {
-        accessKeyId: creds.AccessKeyId,
-        secretAccessKey: creds.SecretKey,
-        sessionToken: creds.SessionToken,
-        expiration: creds.Expiration || new Date(Date.now() + 3600 * 1000), // Default 1 hour
-      };
-      this._isAuthenticatedCredentials = true; // Direct Cognito with Apple token
+      this.credentials = parsed;
+      this.accessLevel = 'authenticated'; // Direct Cognito with Apple token
 
-      console.log(
-        '[AWSCredentials] Credentials refreshed (authenticated), expires:',
-        this.credentials.expiration.toISOString()
-      );
+      log.debug('Credentials refreshed (authenticated)', { expires: this.credentials.expiration.toISOString() });
 
       return this.credentials;
     } catch (error) {
-      console.error('[AWSCredentials] Failed to refresh credentials:', error);
+      log.error('Failed to refresh credentials', error);
 
       // If we got a NotAuthorizedException, clear the identity and try again
       if (error instanceof Error && error.name === 'NotAuthorizedException') {
-        console.log('[AWSCredentials] Token may be expired, clearing identity');
+        log.debug('Token may be expired, clearing identity');
         this.identityId = null;
       }
 
@@ -646,9 +643,8 @@ class AWSCredentialsService {
       return false;
     }
 
-    // Consider expired if within 5 minutes of expiration
-    const bufferMs = 5 * 60 * 1000;
-    return this.credentials.expiration.getTime() - bufferMs > Date.now();
+    // Consider expired if within the buffer window of expiration
+    return this.credentials.expiration.getTime() - CREDENTIAL_CONFIG.EXPIRATION_BUFFER_MS > Date.now();
   }
 }
 

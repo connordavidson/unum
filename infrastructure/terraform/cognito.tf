@@ -51,6 +51,17 @@ resource "aws_iam_role" "cognito_authenticated" {
             "cognito-identity.amazonaws.com:amr" = "authenticated"
           }
         }
+      },
+      {
+        # Allow the auth Lambda to assume this role via STS for session refresh.
+        # When a user's Apple identity token expires (~10 min), the Lambda can't
+        # get authenticated Cognito credentials. STS AssumeRole lets the Lambda
+        # issue authenticated credentials using the session refresh token as proof.
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_iam_role.auth_lambda.arn
+        }
+        Action = "sts:AssumeRole"
       }
     ]
   })
