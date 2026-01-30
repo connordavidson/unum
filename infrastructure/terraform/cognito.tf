@@ -102,8 +102,7 @@ resource "aws_iam_role_policy" "cognito_authenticated" {
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:HeadObject"
+          "s3:DeleteObject"
         ]
         Resource = "${aws_s3_bucket.media.arn}/*"
       },
@@ -176,8 +175,7 @@ resource "aws_iam_role_policy" "cognito_unauthenticated" {
         Sid    = "S3ReadAccess"
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
-          "s3:HeadObject"
+          "s3:GetObject"
         ]
         Resource = "${aws_s3_bucket.media.arn}/*"
       }
