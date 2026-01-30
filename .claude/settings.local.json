@@ -55,7 +55,11 @@
       "Bash(brew install:*)",
       "Bash(aws configure list:*)",
       "Bash(aws configure set:*)",
-      "Bash(aws sts get-caller-identity:*)"
+      "Bash(aws sts get-caller-identity:*)",
+      "Bash(xargs:*)",
+      "Bash(npx jest --no-coverage)",
+      "Bash(npx jest:*)",
+      "Bash(gh pr edit:*)"
     ]
   }
 }
