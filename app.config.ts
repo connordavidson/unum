@@ -21,10 +21,12 @@ const APP_ENV = process.env.APP_ENV || 'development';
 const isProduction = APP_ENV === 'production';
 
 // Load the appropriate .env file
+// Note: override:true is required because Expo SDK 49+ auto-loads .env.development
+// before app.config.ts runs. Without override, dotenv silently skips already-set vars.
 const envFile = isProduction ? '.env.production' : '.env.development';
-dotenv.config({ path: envFile });
+dotenv.config({ path: envFile, override: true });
 
-// Fallback to .env if environment-specific file doesn't exist
+// Fallback to .env for any vars not in the environment-specific file
 dotenv.config({ path: '.env' });
 
 // Load from app.json

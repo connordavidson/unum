@@ -6,6 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "start:prod": "APP_ENV=production expo start --clear",
+    "ios:prod": "APP_ENV=production expo run:ios --device",
     "web": "expo start --web",
     "test": "jest",
     "test:watch": "jest --watch",
