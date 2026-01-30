@@ -60,7 +60,10 @@
       "Bash(npx jest --no-coverage)",
       "Bash(npx jest:*)",
       "Bash(gh pr edit:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
     ]
   }
 }
