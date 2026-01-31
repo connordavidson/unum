@@ -317,6 +317,39 @@ export async function updateVoteCount(
 }
 
 /**
+ * Persist the computed vote count to the upload item's cached voteCount field.
+ * Called after casting or removing a vote so the upload item stays in sync.
+ */
+async function persistVoteCount(
+  uploadId: string,
+  count: number
+): Promise<void> {
+  try {
+    await withRetry(async () => {
+      const docClient = await getWriteDocClient();
+      await docClient.send(
+        new UpdateCommand({
+          TableName: dynamoConfig.tableName,
+          Key: {
+            PK: createUploadPK(uploadId),
+            SK: createUploadSK(),
+          },
+          UpdateExpression: 'SET voteCount = :count, updatedAt = :updatedAt',
+          ExpressionAttributeValues: {
+            ':count': count,
+            ':updatedAt': new Date().toISOString(),
+          },
+        })
+      );
+    });
+  } catch (err) {
+    // Non-critical: vote items remain the source of truth.
+    // The cached count will self-correct on the next vote or provider refresh.
+    console.warn('[dynamodb] Failed to persist voteCount for', uploadId, err);
+  }
+}
+
+/**
  * Delete an upload
  */
 export async function deleteUpload(uploadId: string): Promise<void> {
@@ -484,8 +517,9 @@ export async function castVote(
     );
   });
 
-  // Get updated vote count
+  // Get updated vote count and persist to upload item
   const voteCount = await getVoteCountForUpload(uploadId);
+  await persistVoteCount(uploadId, voteCount);
   return { voteCount, userVote: voteType };
 }
 
@@ -509,8 +543,9 @@ export async function removeVote(
     );
   });
 
-  // Get updated vote count
+  // Get updated vote count and persist to upload item
   const voteCount = await getVoteCountForUpload(uploadId);
+  await persistVoteCount(uploadId, voteCount);
   return { voteCount, userVote: null };
 }
 

@@ -428,7 +428,7 @@ The `aws-credentials.service` tracks credential state as a discriminated access 
 | geohash | string | Geohash for spatial indexing |
 | timestamp | string | ISO creation time |
 | caption | string? | Optional caption |
-| voteCount | number? | Cached vote count |
+| voteCount | number? | Cached vote count (persisted by castVote/removeVote after computing from vote items) |
 | userId | string | Apple user ID |
 | deviceId | string | Device identifier |
 
