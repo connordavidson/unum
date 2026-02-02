@@ -20,6 +20,7 @@
   "dependencies": {
     "@aws-sdk/client-cognito-identity": "^3.975.0",
     "@aws-sdk/client-dynamodb": "^3.975.0",
+    "@aws-sdk/client-rekognition": "^3.980.0",
     "@aws-sdk/client-s3": "^3.975.0",
     "@aws-sdk/lib-dynamodb": "^3.975.0",
     "@aws-sdk/s3-request-presigner": "^3.975.0",
@@ -35,6 +36,7 @@
     "babel-preset-expo": "~54.0.0",
     "expo": "~54.0.0",
     "expo-apple-authentication": "~8.0.8",
+    "expo-build-properties": "~1.0.10",
     "expo-camera": "~17.0.10",
     "expo-crypto": "~15.0.8",
     "expo-file-system": "~19.0.21",
@@ -47,6 +49,7 @@
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-video": "~3.0.15",
+    "expo-video-thumbnails": "~10.0.8",
     "ngeohash": "^0.6.3",
     "piexifjs": "^1.0.6",
     "react": "19.1.0",

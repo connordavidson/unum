@@ -22,6 +22,7 @@ interface FeedPanelProps {
   uploads: Upload[];
   userVotes: UserVotes;
   onVote: (uploadId: string, voteType: VoteType) => void;
+  onReport?: (uploadId: string) => void;
   onVisibleItemsChange?: (visibleIds: string[]) => void;
   bottomSheetRef: React.RefObject<BottomSheet>;
   onRefresh?: () => Promise<void>;
@@ -32,6 +33,7 @@ export function FeedPanel({
   uploads,
   userVotes,
   onVote,
+  onReport,
   onVisibleItemsChange,
   bottomSheetRef,
   onRefresh,
@@ -137,10 +139,11 @@ export function FeedPanel({
         upload={item}
         userVote={userVotes[item.id]}
         onVote={onVote}
+        onReport={onReport}
         isVisible={isSheetExpanded && visibleItemsRef.current.has(item.id)}
       />
     ),
-    [userVotes, onVote, isSheetExpanded]
+    [userVotes, onVote, onReport, isSheetExpanded]
   );
 
   const keyExtractor = useCallback((item: Upload) => String(item.id), []);

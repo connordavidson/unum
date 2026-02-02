@@ -14,6 +14,10 @@
 10. [Configuration & Environment](#10-configuration--environment)
 11. [Testing](#11-testing)
 12. [Development Setup](#12-development-setup)
+13. [Content Moderation](#13-content-moderation-apple-guideline-12)
+14. [Account Deletion](#14-account-deletion-apple-guideline-511v)
+15. [Legal Pages](#15-legal-pages)
+16. [App Store Submission Configuration](#16-app-store-submission-configuration)
 
 ---
 
@@ -139,6 +143,7 @@ unum/
 │   │   ├── ProfileDrawer.tsx      # Profile side drawer
 │   │   ├── LockScreen.tsx         # Biometric lock overlay
 │   │   ├── AppleSignInButton.tsx  # Apple auth button
+│   │   ├── ReportModal.tsx        # Report reason picker modal
 │   │   └── ErrorBoundary.tsx      # Error boundary
 │   │
 │   ├── contexts/                  # React context providers
@@ -179,7 +184,9 @@ unum/
 │   ├── screens/                   # Full-screen views
 │   │   ├── MapScreen.tsx         # Map + feed (main screen)
 │   │   ├── CameraScreen.tsx      # Capture photo/video
-│   │   └── SignInScreen.tsx      # Apple Sign-In modal
+│   │   ├── SignInScreen.tsx      # Apple Sign-In modal
+│   │   ├── PrivacyPolicyScreen.tsx # Privacy Policy page
+│   │   └── TermsOfServiceScreen.tsx # Terms of Service / EULA page
 │   │
 │   ├── services/                  # Business logic services
 │   │   ├── auth.service.ts               # Apple Sign-In orchestration
@@ -192,7 +199,10 @@ unum/
 │   │   ├── logging.service.ts          # Crashlytics logging
 │   │   ├── analytics.service.ts        # Firebase analytics
 │   │   ├── biometric.service.ts        # Face ID / Touch ID
-│   │   └── exif.service.ts             # EXIF metadata read/write
+│   │   ├── exif.service.ts             # EXIF metadata read/write
+│   │   ├── moderation.service.ts       # AWS Rekognition content moderation
+│   │   ├── block.service.ts            # User blocking CRUD
+│   │   └── account.service.ts          # Account deletion
 │   │
 │   ├── shared/                    # Shared code
 │   │   ├── constants/            # App-wide constants and feature flags
@@ -623,6 +633,7 @@ The three auth-related services form a chain:
 | `useNetworkStatus` | `hooks/useNetworkStatus.ts` | Polls connectivity every 5 seconds |
 | `useAppLock` | `hooks/useAppLock.ts` | Biometric lock state on app startup |
 | `useDownload` | `hooks/useDownload.ts` | Download media to photo library with EXIF |
+| `useEulaAcceptance` | `hooks/useEulaAcceptance.ts` | EULA acceptance tracking (AsyncStorage) |
 
 **Observability:**
 
@@ -671,9 +682,11 @@ Defined but not currently mounted in App.tsx. Intended to provide initialization
 
 ```
 RootNavigator (native stack, headerless)
-  ├── Map        ──  initial route (always mounted)
-  ├── Camera     ──  fullScreenModal, slide_from_bottom
-  └── SignIn     ──  modal, slide_from_bottom
+  ├── Map             ──  initial route (always mounted)
+  ├── Camera          ──  fullScreenModal, slide_from_bottom
+  ├── SignIn          ──  modal, slide_from_bottom
+  ├── PrivacyPolicy   ──  modal, slide_from_bottom
+  └── TermsOfService  ──  modal, slide_from_bottom
 ```
 
 Defined in `src/navigation/RootNavigator.tsx`.
@@ -944,3 +957,184 @@ terraform output -json
 | `S3_BUCKET` | `unum-dev-media-123` | S3 bucket name |
 | `AUTH_API_URL` | `https://xxx.execute-api...` | Lambda auth endpoint |
 | `USE_AWS_BACKEND` | `true` | Enable remote operations |
+
+---
+
+## 13. Content Moderation (Apple Guideline 1.2)
+
+Apple requires all apps with user-generated content to provide content filtering, reporting, and user blocking.
+
+### Automated Moderation (AWS Rekognition)
+
+**Service:** `src/services/moderation.service.ts`
+
+All uploads are automatically screened before being stored. The moderation pipeline:
+
+1. User captures media in CameraScreen
+2. Before S3 upload, `getModerationService().moderate(localPath, mediaType)` is called
+3. For photos: reads file as base64, sends to `DetectModerationLabels`
+4. For videos: extracts a thumbnail at 1 second via `expo-video-thumbnails`, then moderates the thumbnail
+5. If any blocked category is detected at ≥75% confidence, the upload is rejected with an error message
+6. If Rekognition is unavailable (service error), the upload is allowed through (graceful degradation)
+
+**Blocked Categories:**
+- Explicit Nudity, Non-Explicit Nudity of Intimate parts and Kissing on the Lips
+- Suggestive
+- Violence, Visually Disturbing
+- Drugs, Tobacco, Alcohol
+- Gambling, Hate Symbols
+
+**Infrastructure:** Cognito authenticated IAM role has `rekognition:DetectModerationLabels` permission (added in `cognito.tf`).
+
+**Dependencies:** `@aws-sdk/client-rekognition`, `expo-video-thumbnails`
+
+### Reporting System
+
+**DynamoDB Schema:**
+
+| Entity | PK | SK |
+|--------|----|----|
+| Report | `UPLOAD#<uploadId>` | `REPORT#<userId>` |
+
+Upload items now include `reportCount` (number) and `hidden` (boolean) fields.
+
+**Operations** (`src/api/clients/dynamodb.client.ts`):
+- `createReport(uploadId, reporterId, reason, details?)` — Creates report item, increments `reportCount` on the upload. Auto-sets `hidden: true` when `reportCount >= 3`.
+- `hasUserReported(uploadId, userId)` — Checks if user already reported a post (prevents duplicate reports).
+
+**UI:** `src/components/ReportModal.tsx` — Modal with reason picker (Inappropriate, Spam, Harassment, Other), optional details text input, and Block User option. Report flag icon added to `FeedCard.tsx` and `MarkerCallout.tsx`.
+
+**Feed Filtering:** `UploadDataProvider.fetchFromAWS()` filters out uploads where `hidden === true`.
+
+### User Blocking
+
+**DynamoDB Schema:**
+
+| Entity | PK | SK |
+|--------|----|----|
+| Block | `USER#<userId>` | `BLOCK#<blockedUserId>` |
+
+**Service:** `src/services/block.service.ts` — Cached blocked user IDs with `blockUser()`, `unblockUser()`, `getBlockedUserIds()`, `isBlocked()`.
+
+**DynamoDB Operations** (`src/api/clients/dynamodb.client.ts`):
+- `blockUser(userId, blockedUserId)` — PutItem
+- `unblockUser(userId, blockedUserId)` — DeleteItem
+- `getBlockedUserIds(userId)` — Query `PK = USER#<id>`, `SK begins_with BLOCK#`, returns `Set<string>`
+
+**Feed Integration:** `UploadDataProvider.fetchFromAWS()` fetches blocked user IDs in parallel with uploads and votes, then filters out blocked users' content.
+
+---
+
+## 14. Account Deletion (Apple Guideline 5.1.1(v))
+
+Apple requires apps that support account creation to also support account deletion.
+
+**Service:** `src/services/account.service.ts`
+
+`deleteAccount(userId)` performs a complete data wipe in this order:
+
+1. **Find user uploads** — Scans all uploads, filters by `userId`
+2. **Delete each upload's data** — S3 media files, associated vote items, upload record
+3. **Delete user's votes** — Fetches user's vote map via GSI, batch deletes all vote items
+4. **Delete user profile** — Deletes `USER#<userId>/PROFILE` record
+5. **Clear AsyncStorage** — All local cached data
+6. **Clear SecureStore** — Auth tokens (`unum_refresh_token`, `unum_cognito_identity_id`, `unum_apple_user_id`, `unum_biometric_enabled`)
+7. **Clear media cache** — Local media files
+8. **Clear AWS credentials** — Cached credential state
+
+**UI:** Delete Account button in `ProfileDrawer.tsx` footer with two-step confirmation Alert. Shows loading state during deletion. Calls `onSignOut()` on completion.
+
+---
+
+## 15. Legal Pages
+
+### Privacy Policy
+**Screen:** `src/screens/PrivacyPolicyScreen.tsx`
+
+Covers: data collected (Apple ID, location, photos/videos), storage (AWS), content moderation (Rekognition), third-party services (Apple Sign-In, AWS, Google Maps, Firebase), data sharing policy, data retention and deletion, children's privacy (17+), user rights, contact info.
+
+### Terms of Service / EULA
+**Screen:** `src/screens/TermsOfServiceScreen.tsx`
+
+Covers: acceptable use, prohibited content (explicit, violent, harassment, spam), account and authentication, content ownership and license, content moderation, user conduct, account termination, EULA (references Apple Standard EULA), privacy, limitation of liability, contact info.
+
+### EULA Acceptance Gate
+**Hook:** `src/hooks/useEulaAcceptance.ts`
+
+Stores acceptance flag in AsyncStorage (`unum_eula_accepted_v1`). The EULA gate is checked in `CameraScreen.tsx` before both immediate and delayed uploads. If not accepted, shows an Alert with options to view terms or accept directly.
+
+### Navigation
+Both legal screens are registered as modal screens in `RootNavigator.tsx` with `slide_from_bottom` animation. Navigation type definitions updated in `src/navigation/types.ts`.
+
+### Integration Points
+- **ProfileDrawer** — Privacy Policy and Terms of Service links in menu
+- **SignInScreen** — "By signing in, you agree to our Terms of Service and Privacy Policy" text with tappable links
+- **CameraScreen** — EULA acceptance gate before upload
+
+---
+
+## 16. App Store Submission Configuration
+
+### Privacy Manifest
+
+**File:** `app.json` > `expo.ios.privacyManifests`
+
+Apple requires a privacy manifest (`PrivacyInfo.xcprivacy`) declaring what data the app collects and which system APIs it accesses. Since the `/ios` directory is gitignored and regenerated by `expo prebuild`, the privacy manifest is configured through `app.json` using the `ios.privacyManifests` key.
+
+**Required Reason APIs declared:**
+- `NSPrivacyAccessedAPICategoryUserDefaults` — AsyncStorage, SecureStore, user preferences
+- `NSPrivacyAccessedAPICategoryFileTimestamp` — File system operations for media caching
+- `NSPrivacyAccessedAPICategoryDiskSpace` — Storage availability checks
+- `NSPrivacyAccessedAPICategorySystemBootTime` — React Native internals
+
+**Collected Data Types declared:**
+
+| Data Type | Linked to User | Purpose |
+|-----------|---------------|---------|
+| User ID (Apple Sign-In) | Yes | App Functionality |
+| Email Address (optional) | Yes | App Functionality |
+| Name (optional) | Yes | App Functionality |
+| Precise Location | Yes | App Functionality |
+| Photos or Videos | Yes | App Functionality |
+| Crash Data (Firebase Crashlytics) | No | Analytics |
+| Performance Data (Firebase) | No | Analytics |
+| Product Interaction (Firebase Analytics) | No | Analytics |
+
+`NSPrivacyTracking` is set to `false` — the app does not track users across apps or websites for advertising.
+
+### Permission Descriptions
+
+All iOS permission strings are set in `app.json` > `expo.ios.infoPlist`:
+
+| Permission | Key | Description |
+|-----------|-----|-------------|
+| Camera | `NSCameraUsageDescription` | Capture photos and videos for sharing |
+| Microphone | `NSMicrophoneUsageDescription` | Record video with audio |
+| Location (When In Use) | `NSLocationWhenInUseUsageDescription` | Show nearby content and tag uploads |
+| Photo Library | `NSPhotoLibraryUsageDescription` | Save captured media |
+| Face ID | `NSFaceIDUsageDescription` | Biometric app lock |
+
+The `expo-location` plugin uses `locationWhenInUsePermission` (foreground only). The app does not request "Always" location access.
+
+### EAS Build & Submit
+
+**File:** `eas.json`
+
+Build profiles:
+- `development` — Simulator, internal distribution, development env
+- `preview` — Internal distribution, development env
+- `preview-prod` — Internal distribution, production env
+- `production` — App Store distribution, production env, auto-increment versions
+
+Submit configuration requires:
+- `appleId` — Apple ID email for App Store Connect
+- `ascAppId` — Numeric app ID from App Store Connect
+- `appleTeamId` — Already configured (`T4LY8DN565`)
+
+### App Store Connect Requirements
+
+- **Age rating:** 17+ (user-generated content with automated moderation)
+- **Category:** Social Networking or Photo & Video
+- **Privacy policy URL:** Must be publicly accessible (not just in-app)
+- **Privacy nutrition labels:** Must match `NSPrivacyCollectedDataTypes` in privacy manifest
+- **Review notes:** Document Apple Sign-In auth, Rekognition moderation, reporting/blocking, account deletion

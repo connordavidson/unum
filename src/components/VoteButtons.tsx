@@ -46,6 +46,8 @@ export function VoteButtons({
           style={[styles.button, { width: buttonSize, height: buttonSize }]}
           onPress={handleNavigate}
           activeOpacity={0.7}
+          accessibilityLabel="Navigate to location"
+          accessibilityRole="button"
         >
           <Ionicons name="navigate-outline" size={iconSize} color={COLORS.TEXT_SECONDARY} />
         </TouchableOpacity>
@@ -56,6 +58,8 @@ export function VoteButtons({
           style={[styles.button, { width: buttonSize, height: buttonSize }]}
           onPress={() => onDownload(uploadId)}
           activeOpacity={0.7}
+          accessibilityLabel="Download"
+          accessibilityRole="button"
         >
           <Ionicons name="download-outline" size={iconSize} color={COLORS.TEXT_SECONDARY} />
         </TouchableOpacity>
@@ -69,6 +73,8 @@ export function VoteButtons({
         ]}
         onPress={() => onVote(uploadId, 'up')}
         activeOpacity={0.7}
+        accessibilityLabel={userVote === 'up' ? 'Remove upvote' : 'Upvote'}
+        accessibilityRole="button"
       >
         <Text
           style={[
@@ -81,7 +87,10 @@ export function VoteButtons({
         </Text>
       </TouchableOpacity>
 
-      <Text style={[styles.count, isSmall && styles.countSmall]}>
+      <Text
+        style={[styles.count, isSmall && styles.countSmall]}
+        accessibilityLabel={`${formatVoteCount(votes)} votes`}
+      >
         {formatVoteCount(votes)}
       </Text>
 
@@ -93,6 +102,8 @@ export function VoteButtons({
         ]}
         onPress={() => onVote(uploadId, 'down')}
         activeOpacity={0.7}
+        accessibilityLabel={userVote === 'down' ? 'Remove downvote' : 'Downvote'}
+        accessibilityRole="button"
       >
         <Text
           style={[
@@ -139,11 +150,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.TEXT_PRIMARY,
-    minWidth: 32,
     textAlign: 'center',
   },
   countSmall: {
     fontSize: 14,
-    minWidth: 24,
   },
 });

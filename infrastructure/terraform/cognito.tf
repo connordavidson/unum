@@ -114,6 +114,14 @@ resource "aws_iam_role_policy" "cognito_authenticated" {
           "s3:GetBucketLocation"
         ]
         Resource = aws_s3_bucket.media.arn
+      },
+      {
+        Sid    = "RekognitionAccess"
+        Effect = "Allow"
+        Action = [
+          "rekognition:DetectModerationLabels"
+        ]
+        Resource = "*"
       }
     ]
   })

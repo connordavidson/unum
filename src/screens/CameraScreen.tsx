@@ -24,6 +24,7 @@ import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
 import { useAnalytics } from '../hooks/useAnalytics';
+import { useEulaAcceptance } from '../hooks/useEulaAcceptance';
 import { COLORS, BUTTON_SIZES, CAMERA_CONFIG } from '../shared/constants';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -57,6 +58,9 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
   // Analytics
   const { trackScreen, trackUpload, track } = useAnalytics();
+
+  // EULA acceptance
+  const { isAccepted: eulaAccepted, acceptEula } = useEulaAcceptance();
 
   // Track screen view on mount
   useEffect(() => {
@@ -216,6 +220,29 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     const mediaUri = getMediaUri();
     if (!position || !mediaUri) return;
 
+    // EULA acceptance gate
+    if (!eulaAccepted) {
+      Alert.alert(
+        'Terms of Service',
+        'You must accept the Terms of Service before posting.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'View Terms',
+            onPress: () => navigation.navigate('TermsOfService'),
+          },
+          {
+            text: 'Accept',
+            onPress: async () => {
+              await acceptEula();
+              handleUpload();
+            },
+          },
+        ],
+      );
+      return;
+    }
+
     const mediaType = getMediaType();
     const hasCaption = caption.trim().length > 0;
 
@@ -232,7 +259,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       trackUpload('complete', { media_type: mediaType, has_caption: hasCaption });
       navigation.goBack();
     } catch (error) {
-      console.error('Upload failed:', error);
+      if (__DEV__) console.error('Upload failed:', error);
       trackUpload('fail', { media_type: mediaType, has_caption: hasCaption });
     } finally {
       setIsUploading(false);
@@ -258,9 +285,41 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     }
   }, [getMediaUri]);
 
+  const delayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup delayed upload timer on unmount
+  useEffect(() => {
+    return () => {
+      if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
+    };
+  }, []);
+
   const handleDelayedUpload = () => {
     const mediaUri = getMediaUri();
     if (!position || !mediaUri) return;
+
+    // EULA acceptance gate
+    if (!eulaAccepted) {
+      Alert.alert(
+        'Terms of Service',
+        'You must accept the Terms of Service before posting.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'View Terms',
+            onPress: () => navigation.navigate('TermsOfService'),
+          },
+          {
+            text: 'Accept',
+            onPress: async () => {
+              await acceptEula();
+              handleDelayedUpload();
+            },
+          },
+        ],
+      );
+      return;
+    }
 
     const uploadData = {
       type: getMediaType(),
@@ -270,11 +329,11 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     };
 
     // Schedule post in 5 minutes
-    setTimeout(async () => {
+    delayTimerRef.current = setTimeout(async () => {
       try {
         await createUpload(uploadData);
       } catch (error) {
-        console.error('Delayed upload failed:', error);
+        if (__DEV__) console.error('Delayed upload failed:', error);
       }
     }, 5 * 60 * 1000);
 
@@ -320,6 +379,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           <TouchableOpacity
             style={[styles.closeButton, { top: insets.top + 16 }]}
             onPress={handleClose}
+            accessibilityLabel="Close"
+            accessibilityRole="button"
           >
             <Ionicons name="close" size={28} color={COLORS.BACKGROUND} />
           </TouchableOpacity>
@@ -331,6 +392,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
               style={styles.actionIconButton}
               onPress={handleRetake}
               disabled={isUploading}
+              accessibilityLabel="Retake"
+              accessibilityRole="button"
             >
               <Ionicons name="refresh" size={24} color={COLORS.TEXT_PRIMARY} />
             </TouchableOpacity>
@@ -339,6 +402,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
               style={styles.actionIconButton}
               onPress={handleDownloadMedia}
               disabled={isUploading}
+              accessibilityLabel="Save to library"
+              accessibilityRole="button"
             >
               <Ionicons name="download-outline" size={24} color={COLORS.TEXT_PRIMARY} />
             </TouchableOpacity>
@@ -347,6 +412,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
               style={[styles.postIconButton, isUploading && styles.uploadButtonDisabled]}
               onPress={handleUpload}
               disabled={isUploading || !position}
+              accessibilityLabel={isUploading ? 'Uploading' : 'Post'}
+              accessibilityRole="button"
             >
               {isUploading ? (
                 <ActivityIndicator color={COLORS.BACKGROUND} />
@@ -360,6 +427,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             style={[styles.delayButton, isUploading && styles.uploadButtonDisabled]}
             onPress={handleDelayedUpload}
             disabled={isUploading || !position}
+            accessibilityLabel="Post in 5 minutes"
+            accessibilityRole="button"
           >
             <Ionicons name="time-outline" size={20} color={COLORS.BACKGROUND} />
             <Text style={styles.delayText}>Post in 5 minutes</Text>
@@ -406,6 +475,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       <TouchableOpacity
         style={[styles.closeButton, { top: insets.top + 16 }]}
         onPress={handleClose}
+        accessibilityLabel="Close camera"
+        accessibilityRole="button"
       >
         <Ionicons name="close" size={28} color={COLORS.BACKGROUND} />
       </TouchableOpacity>
@@ -421,6 +492,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           <TouchableOpacity
             style={styles.flipButton}
             onPress={flipCamera}
+            accessibilityLabel="Flip camera"
+            accessibilityRole="button"
           >
             <Ionicons name="camera-reverse" size={28} color={COLORS.BACKGROUND} />
           </TouchableOpacity>
@@ -433,6 +506,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
                 isRecording && styles.captureButtonRecording,
                 !isCameraReady && styles.captureButtonDisabled,
               ]}
+              accessibilityLabel={isRecording ? 'Recording video' : 'Capture photo or hold for video'}
+              accessibilityRole="button"
             >
               {isRecording && <View style={styles.recordingIndicator} />}
             </View>

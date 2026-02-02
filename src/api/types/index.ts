@@ -76,8 +76,34 @@ export interface DynamoUploadItem {
   voteCount?: number;
   userId: string;                // Apple user ID (authenticated user)
   deviceId: string;              // Device identifier
+  reportCount?: number;
+  hidden?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Report item - user report on an upload
+ */
+export interface DynamoReportItem {
+  PK: string;                    // "UPLOAD#<uploadId>"
+  SK: string;                    // "REPORT#<userId>"
+  uploadId: string;
+  reporterId: string;
+  reason: 'inappropriate' | 'spam' | 'harassment' | 'other';
+  details?: string;
+  createdAt: string;
+}
+
+/**
+ * Block item - user block relationship
+ */
+export interface DynamoBlockItem {
+  PK: string;                    // "USER#<userId>"
+  SK: string;                    // "BLOCK#<blockedUserId>"
+  userId: string;
+  blockedUserId: string;
+  createdAt: string;
 }
 
 /**

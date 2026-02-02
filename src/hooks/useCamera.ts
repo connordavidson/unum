@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { Alert } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { CAMERA_CONFIG } from '../shared/constants';
 import { useGestureCapture } from './useGestureCapture';
@@ -86,6 +87,7 @@ export function useCamera(): UseCameraResult {
       }
     } catch (err) {
       console.error('Failed to take photo:', err);
+      Alert.alert('Photo Error', 'Failed to capture photo. Please try again.');
     }
   }, [isCameraReady]);
 
@@ -104,6 +106,7 @@ export function useCamera(): UseCameraResult {
       }
     } catch (err) {
       console.error('Failed to record video:', err);
+      Alert.alert('Recording Error', 'Failed to record video. Please try again.');
     } finally {
       setIsRecording(false);
     }

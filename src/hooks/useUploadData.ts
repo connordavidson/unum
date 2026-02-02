@@ -13,6 +13,7 @@ import { FEATURE_FLAGS, UPLOAD_CONFIG } from '../shared/constants';
 import { getUploadDataProvider } from '../providers/UploadDataProvider';
 import { getUploadService } from '../services/upload.service';
 import { getMediaService } from '../services/media.service';
+import { getModerationService } from '../services/moderation.service';
 import { useUserIdentity } from './useUserIdentity';
 import { useVoting } from './useVoting';
 import type { Upload, CreateUploadData, VoteType, BoundingBox } from '../shared/types';
@@ -60,11 +61,7 @@ export function useUploadData(): UseUploadDataResult {
     const currentVersion = ++requestVersionRef.current;
     const currentUserId = userIdRef.current || userId;
 
-    console.log('[useUploadData] refreshUploads called', {
-      version: currentVersion,
-      hasBbox: !!bbox,
-      userId: currentUserId
-    });
+    if (__DEV__) console.log('[useUploadData] refreshUploads called', { version: currentVersion, hasBbox: !!bbox });
 
     try {
       const data = bbox
@@ -75,14 +72,14 @@ export function useUploadData(): UseUploadDataResult {
       if (currentVersion === requestVersionRef.current) {
         setUploads(data);
         setError(null);
-        console.log('[useUploadData] Applied result for version', currentVersion, ':', data.length, 'uploads');
+        if (__DEV__) console.log('[useUploadData] Applied result for version', currentVersion, ':', data.length, 'uploads');
       } else {
-        console.log('[useUploadData] Ignoring stale result for version', currentVersion, '(current:', requestVersionRef.current, ')');
+        if (__DEV__) console.log('[useUploadData] Ignoring stale result for version', currentVersion);
       }
     } catch (err) {
       // Only set error if this is still the latest request
       if (currentVersion === requestVersionRef.current) {
-        console.error('[useUploadData] Refresh failed:', err);
+        if (__DEV__) console.error('[useUploadData] Refresh failed:', err);
         setError('Failed to load uploads');
       }
     }
@@ -90,12 +87,7 @@ export function useUploadData(): UseUploadDataResult {
 
   // Create upload - uses existing services
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {
-    console.log('[useUploadData] ========== createUpload START ==========');
-    console.log('[useUploadData] USE_AWS_BACKEND:', FEATURE_FLAGS.USE_AWS_BACKEND);
-    console.log('[useUploadData] uploadData:', JSON.stringify(uploadData, null, 2));
-    console.log('[useUploadData] uploadData.coordinates:', JSON.stringify(uploadData.coordinates));
-    console.log('[useUploadData] uploadData.type:', uploadData.type);
-    console.log('[useUploadData] uploadData.data:', uploadData.data);
+    if (__DEV__) console.log('[useUploadData] createUpload', { type: uploadData.type, hasCoords: !!uploadData.coordinates });
 
     const currentUserId = userIdRef.current || userId;
 
@@ -128,6 +120,15 @@ export function useUploadData(): UseUploadDataResult {
       const mediaSvc = getMediaService({ useRemote: true });
       const uploadId = Crypto.randomUUID();
 
+      // Content moderation check before upload
+      const moderationResult = await getModerationService().moderate(
+        uploadData.data,
+        uploadData.type,
+      );
+      if (!moderationResult.approved) {
+        throw new Error(moderationResult.reason || 'Content was flagged as inappropriate and cannot be uploaded.');
+      }
+
       // Upload media to S3 (with EXIF metadata for photos)
       const mediaResult = await mediaSvc.upload({
         localPath: uploadData.data,
@@ -149,7 +150,7 @@ export function useUploadData(): UseUploadDataResult {
         deviceId: finalDeviceId,
       });
 
-      console.log('[useUploadData] Upload created successfully');
+      if (__DEV__) console.log('[useUploadData] Upload created successfully');
     }
 
     // Invalidate cache so next refresh gets new data

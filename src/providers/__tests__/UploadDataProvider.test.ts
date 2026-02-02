@@ -40,10 +40,12 @@ jest.mock('../../data/testUploads', () => ({
 // Mock the DynamoDB client
 const mockGetAllUploads = jest.fn();
 const mockGetUserVotesMap = jest.fn();
+const mockGetBlockedUserIds = jest.fn().mockResolvedValue(new Set<string>());
 
 jest.mock('../../api/clients/dynamodb.client', () => ({
   getAllUploads: (...args: unknown[]) => mockGetAllUploads(...args),
   getUserVotesMap: (...args: unknown[]) => mockGetUserVotesMap(...args),
+  getBlockedUserIds: (...args: unknown[]) => mockGetBlockedUserIds(...args),
 }));
 
 // Mock the media service
@@ -52,6 +54,18 @@ const mockGetDisplayUrl = jest.fn();
 jest.mock('../../services/media.service', () => ({
   getMediaService: () => ({
     getDisplayUrl: mockGetDisplayUrl,
+  }),
+}));
+
+// Mock the logging service
+jest.mock('../../services/logging.service', () => ({
+  getLoggingService: () => ({
+    createLogger: () => ({
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    }),
   }),
 }));
 
@@ -187,13 +201,9 @@ describe('UploadDataProvider', () => {
     it('should handle AWS fetch failure gracefully', async () => {
       mockGetAllUploads.mockRejectedValue(new Error('Network error'));
 
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-
       const result = await provider.getAll('user-123');
 
       expect(result).toEqual([]);
-      expect(consoleSpy).toHaveBeenCalled();
-      consoleSpy.mockRestore();
     });
 
     it('should rank uploads by time-decay algorithm (recent and upvoted first)', async () => {

@@ -93,6 +93,25 @@ export function SignInScreen({
           We only use your Apple ID to identify your posts.{"\n"}
           Your email is never shared publicly.
         </Text>
+
+        {/* Legal links */}
+        <Text style={styles.legalNote}>
+          By signing in, you agree to our{" "}
+          <Text
+            style={styles.legalLink}
+            onPress={() => navigation.navigate("TermsOfService")}
+          >
+            Terms of Service
+          </Text>
+          {" "}and{" "}
+          <Text
+            style={styles.legalLink}
+            onPress={() => navigation.navigate("PrivacyPolicy")}
+          >
+            Privacy Policy
+          </Text>
+          .
+        </Text>
       </View>
 
       {/* Cancel button */}
@@ -177,5 +196,16 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 16,
     color: COLORS.TEXT_SECONDARY,
+  },
+  legalNote: {
+    fontSize: 12,
+    color: COLORS.TEXT_TERTIARY,
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 16,
+  },
+  legalLink: {
+    color: COLORS.PRIMARY,
+    textDecorationLine: "underline",
   },
 });

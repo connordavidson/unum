@@ -27,7 +27,9 @@ export type LogModule =
   | 'Storage'
   | 'Location'
   | 'Biometric'
-  | 'Exif';
+  | 'Exif'
+  | 'Moderation'
+  | 'Account';
 
 export interface ModuleLogger {
   debug: (message: string, data?: Record<string, unknown>) => void;
@@ -200,6 +202,7 @@ class LoggingService {
    * Use to verify Crashlytics is working
    */
   testCrash(): void {
+    if (!__DEV__) return;
     console.warn('[Logging] Triggering test crash...');
     crashlytics().crash();
   }
@@ -209,6 +212,7 @@ class LoggingService {
    * Use to verify error reporting without crashing
    */
   testNonFatalError(): void {
+    if (!__DEV__) return;
     console.warn('[Logging] Triggering test non-fatal error...');
     const testError = new Error('Test non-fatal error from Unum app');
     testError.name = 'TestError';
@@ -220,6 +224,7 @@ class LoggingService {
    * Logs several breadcrumbs that will appear in crash reports
    */
   testBreadcrumbs(): void {
+    if (!__DEV__) return;
     console.warn('[Logging] Logging test breadcrumbs...');
     crashlytics().log('Test breadcrumb 1: User opened test');
     crashlytics().log('Test breadcrumb 2: User tapped button');
@@ -233,6 +238,7 @@ class LoggingService {
    * Tests error reporting without crashing the app
    */
   runAllTests(): void {
+    if (!__DEV__) return;
     console.log('[Logging] Running Crashlytics tests...');
 
     // Set test attributes

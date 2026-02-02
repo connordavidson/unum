@@ -26,6 +26,9 @@ import type {
   CreateUploadInput,
   UploadQueryResult,
 } from '../repositories/interfaces/upload.repository';
+import { getLoggingService } from './logging.service';
+
+const log = getLoggingService().createLogger('Upload');
 
 // ============ Types ============
 
@@ -78,9 +81,7 @@ export class UploadService {
    * Always writes to local first, then remote if enabled
    */
   async createUpload(params: CreateUploadParams): Promise<BFFUpload> {
-    console.log('[UploadService] createUpload() called');
-    console.log('[UploadService] useRemote:', this.useRemote);
-    console.log('[UploadService] mediaKey:', params.mediaKey);
+    log.debug('createUpload() called', { useRemote: String(this.useRemote), mediaKey: params.mediaKey || 'none' });
 
     const input: CreateUploadInput = {
       type: params.type,
@@ -93,21 +94,17 @@ export class UploadService {
     };
 
     // Always create locally first
-    console.log('[UploadService] Creating local upload...');
     const localUpload = await this.localRepo.create(input);
-    console.log('[UploadService] Local upload created:', localUpload.id);
+    log.debug('Local upload created', { id: localUpload.id });
 
     // If remote is enabled, also create remotely
     if (this.useRemote) {
-      console.log('[UploadService] Creating remote upload in DynamoDB...');
-      // Note: We throw errors during initial setup/debugging.
-      // For production offline-first behavior, wrap in try/catch and mark as pending sync.
-      await this.remoteRepo.create(input);
-      console.log('[UploadService] DynamoDB upload successful');
-      // Mark local as synced
-      await this.localRepo.markSynced(localUpload.id);
-    } else {
-      console.log('[UploadService] Remote not enabled, skipping DynamoDB');
+      try {
+        await this.remoteRepo.create(input);
+        await this.localRepo.markSynced(localUpload.id);
+      } catch (error) {
+        log.error('Remote create failed, queued for sync', error);
+      }
     }
 
     return localUpload;
@@ -185,7 +182,7 @@ export class UploadService {
         totalCount: mergedUploads.length,
       };
     } catch (error) {
-      console.error('Failed to fetch remote uploads:', error);
+      log.error('Failed to fetch remote uploads', error);
       // Fall back to local only
       return localResult;
     }
@@ -219,7 +216,7 @@ export class UploadService {
       try {
         await this.remoteRepo.update(id, updates);
       } catch (error) {
-        console.error('Failed to sync upload update to remote:', error);
+        log.error('Failed to sync upload update to remote', error);
       }
     }
 
@@ -238,7 +235,7 @@ export class UploadService {
       try {
         await this.remoteRepo.updateVoteCount(id, delta);
       } catch (error) {
-        console.error('Failed to sync vote count to remote:', error);
+        log.error('Failed to sync vote count to remote', error);
       }
     }
 
@@ -259,7 +256,7 @@ export class UploadService {
       try {
         await this.remoteRepo.delete(id);
       } catch (error) {
-        console.error('Failed to delete upload from remote:', error);
+        log.error('Failed to delete upload from remote', error);
       }
     }
   }

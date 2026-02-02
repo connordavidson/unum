@@ -11,6 +11,9 @@ import * as ImageManipulator from 'expo-image-manipulator';
 // @ts-expect-error - piexifjs has no type declarations
 import piexif from 'piexifjs';
 import type { Coordinates } from '../shared/types';
+import { getLoggingService } from './logging.service';
+
+const log = getLoggingService().createLogger('Exif');
 
 // ============ Types ============
 
@@ -61,7 +64,7 @@ function formatExifDate(isoString: string): string {
 function buildGpsExif(coordinates: Coordinates): Record<string, unknown> {
   const [latitude, longitude] = coordinates;
 
-  console.log('[ExifService] Building GPS EXIF for:', { latitude, longitude });
+  log.debug('Building GPS EXIF', { latitude, longitude });
 
   return {
     [piexif.GPSIFD.GPSLatitudeRef]: latitude >= 0 ? 'N' : 'S',
@@ -77,7 +80,7 @@ function buildGpsExif(coordinates: Coordinates): Record<string, unknown> {
  * Returns a new file path to a guaranteed JPEG file
  */
 async function ensureJpegFormat(imagePath: string): Promise<string> {
-  console.log('[ExifService] Converting to JPEG:', imagePath);
+  log.debug('Converting to JPEG', { path: imagePath });
 
   const result = await ImageManipulator.manipulateAsync(
     imagePath,
@@ -88,7 +91,7 @@ async function ensureJpegFormat(imagePath: string): Promise<string> {
     }
   );
 
-  console.log('[ExifService] Converted to JPEG:', result.uri);
+  log.debug('Converted to JPEG', { uri: result.uri });
   return result.uri;
 }
 
@@ -103,28 +106,23 @@ export async function writeExifToImage(
   imagePath: string,
   metadata: ExifMetadata
 ): Promise<string> {
-  console.log('[ExifService] ========== writeExifToImage START ==========');
-  console.log('[ExifService] Input path:', imagePath);
-  console.log('[ExifService] Metadata:', JSON.stringify(metadata, null, 2));
+  log.debug('writeExifToImage start', { path: imagePath });
 
   try {
     // Step 1: Convert to guaranteed JPEG format
     const jpegPath = await ensureJpegFormat(imagePath);
-    console.log('[ExifService] JPEG path:', jpegPath);
 
     // Step 2: Read the JPEG as base64
     const base64 = await FileSystem.readAsStringAsync(jpegPath, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    console.log('[ExifService] Read JPEG, base64 length:', base64.length);
 
     // Verify it's actually JPEG by checking magic bytes
     const magicBytes = atob(base64.substring(0, 4));
     const isJpeg = magicBytes.charCodeAt(0) === 0xFF && magicBytes.charCodeAt(1) === 0xD8;
-    console.log('[ExifService] Is valid JPEG:', isJpeg);
 
     if (!isJpeg) {
-      console.error('[ExifService] File is not a valid JPEG after conversion!');
+      log.warn('File is not a valid JPEG after conversion');
       return imagePath;
     }
 
@@ -135,9 +133,7 @@ export async function writeExifToImage(
     let exifObj: Record<string, Record<string, unknown>>;
     try {
       exifObj = piexif.load(dataUri);
-      console.log('[ExifService] Loaded existing EXIF');
     } catch {
-      console.log('[ExifService] No existing EXIF, creating new');
       exifObj = {
         '0th': {},
         Exif: {},
@@ -153,18 +149,13 @@ export async function writeExifToImage(
 
     // Step 4: Add GPS coordinates
     if (metadata.coordinates) {
-      console.log('[ExifService] Adding GPS coordinates:', metadata.coordinates);
       const gpsData = buildGpsExif(metadata.coordinates);
-      console.log('[ExifService] GPS EXIF data keys:', Object.keys(gpsData));
       Object.assign(exifObj['GPS'], gpsData);
-    } else {
-      console.log('[ExifService] WARNING: No coordinates provided!');
     }
 
     // Step 5: Add timestamp
     if (metadata.timestamp) {
       const exifDate = formatExifDate(metadata.timestamp);
-      console.log('[ExifService] Adding timestamp:', exifDate);
       exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifDate;
       exifObj['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifDate;
       exifObj['0th'][piexif.ImageIFD.DateTime] = exifDate;
@@ -176,7 +167,6 @@ export async function writeExifToImage(
       exifObj['0th'][piexif.ImageIFD.Artist] = metadata.uploaderId;
       exifObj['0th'][piexif.ImageIFD.ImageDescription] = metadata.uploaderId;
       exifObj['0th'][piexif.ImageIFD.Copyright] = `Uploaded by ${metadata.uploaderId}`;
-      console.log('[ExifService] Added uploader to Artist/ImageDescription/Copyright');
     }
 
     if (metadata.downloaderId) {
@@ -185,7 +175,6 @@ export async function writeExifToImage(
       exifObj['0th'][piexif.ImageIFD.Copyright] = existingCopyright
         ? `${existingCopyright} | Downloaded by ${metadata.downloaderId}`
         : `Downloaded by ${metadata.downloaderId}`;
-      console.log('[ExifService] Added downloader to Copyright');
     }
 
     // Build user comment with all metadata (backup storage)
@@ -203,13 +192,10 @@ export async function writeExifToImage(
     if (userCommentParts.length > 0) {
       const comment = userCommentParts.join(';');
       exifObj['Exif'][piexif.ExifIFD.UserComment] = `ASCII\0\0\0${comment}`;
-      console.log('[ExifService] Added user comment:', comment);
     }
 
     // Step 7: Insert EXIF back into image
-    console.log('[ExifService] Dumping EXIF bytes...');
     const exifBytes = piexif.dump(exifObj);
-    console.log('[ExifService] Inserting EXIF into image...');
     const newDataUri = piexif.insert(exifBytes, dataUri);
 
     // Step 8: Extract base64 and write to new file
@@ -217,7 +203,6 @@ export async function writeExifToImage(
 
     // Create a new file path for the EXIF-embedded image
     const outputPath = `${FileSystem.cacheDirectory}exif_${Date.now()}.jpg`;
-    console.log('[ExifService] Writing to:', outputPath);
 
     await FileSystem.writeAsStringAsync(outputPath, newBase64, {
       encoding: FileSystem.EncodingType.Base64,
@@ -225,27 +210,11 @@ export async function writeExifToImage(
 
     // Verify the output file exists
     const fileInfo = await FileSystem.getInfoAsync(outputPath);
-    console.log('[ExifService] Output file info:', fileInfo);
+    log.debug('writeExifToImage complete', { outputExists: fileInfo.exists });
 
-    // Verify EXIF was written by reading it back
-    try {
-      const verifyBase64 = await FileSystem.readAsStringAsync(outputPath, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const verifyDataUri = `data:image/jpeg;base64,${verifyBase64}`;
-      const verifyExif = piexif.load(verifyDataUri);
-      console.log('[ExifService] VERIFY - GPS data:', JSON.stringify(verifyExif['GPS']));
-      console.log('[ExifService] VERIFY - Has GPS lat:', !!verifyExif['GPS']?.[piexif.GPSIFD.GPSLatitude]);
-      console.log('[ExifService] VERIFY - Has GPS lon:', !!verifyExif['GPS']?.[piexif.GPSIFD.GPSLongitude]);
-    } catch (verifyError) {
-      console.error('[ExifService] VERIFY failed:', verifyError);
-    }
-
-    console.log('[ExifService] ========== writeExifToImage SUCCESS ==========');
     return outputPath;
   } catch (error) {
-    console.error('[ExifService] ========== writeExifToImage FAILED ==========');
-    console.error('[ExifService] Error:', error);
+    log.error('writeExifToImage failed', error);
     // Return original path on error - don't fail the upload/download
     return imagePath;
   }
@@ -260,10 +229,7 @@ export async function writeUploadExif(
   timestamp: string,
   uploaderId: string
 ): Promise<string> {
-  console.log('[ExifService] writeUploadExif called');
-  console.log('[ExifService] coordinates:', coordinates);
-  console.log('[ExifService] timestamp:', timestamp);
-  console.log('[ExifService] uploaderId:', uploaderId);
+  log.debug('writeUploadExif called', { hasCoords: !!coordinates, timestamp, uploaderId });
 
   return writeExifToImage(imagePath, {
     coordinates,
@@ -356,7 +322,7 @@ export async function readExifFromImage(
 
     return metadata;
   } catch (error) {
-    console.error('[ExifService] Failed to read EXIF:', error);
+    log.error('Failed to read EXIF', error);
     return null;
   }
 }

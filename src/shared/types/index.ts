@@ -9,6 +9,8 @@ export interface Upload {
   caption?: string;
   votes: number;
   userVote?: VoteType | null;  // Current user's vote on this upload
+  userId?: string;             // Upload author's user ID (for blocking)
+  hidden?: boolean;            // Hidden due to reports
 }
 
 export interface CreateUploadData {

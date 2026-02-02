@@ -29,6 +29,7 @@ import {
   BiometricType,
 } from '../services/biometric.service';
 import { getLoggingService } from '../services/logging.service';
+import { deleteAccount } from '../services/account.service';
 
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.75;
 
@@ -37,6 +38,7 @@ interface ProfileDrawerProps {
   onClose: () => void;
   user: AuthUser | null;
   onSignOut: () => void;
+  onNavigate?: (screen: string) => void;
 }
 
 export function ProfileDrawer({
@@ -44,9 +46,12 @@ export function ProfileDrawer({
   onClose,
   user,
   onSignOut,
+  onNavigate,
 }: ProfileDrawerProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const slideAnim = React.useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   // Biometric state
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -111,6 +116,34 @@ export function ProfileDrawer({
     }).start();
   }, [visible, slideAnim]);
 
+  const handleDeleteAccount = () => {
+    if (!user?.id) return;
+
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete all your posts, votes, and account data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Account',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDeletingAccount(true);
+            try {
+              await deleteAccount(user.id);
+              onSignOut();
+              onClose();
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete account. Please try again.');
+            } finally {
+              setIsDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSignOut = () => {
     Alert.alert(
       'Sign Out',
@@ -141,6 +174,8 @@ export function ProfileDrawer({
         style={styles.backdrop}
         activeOpacity={1}
         onPress={onClose}
+        accessibilityLabel="Close menu"
+        accessibilityRole="button"
       />
 
       {/* Drawer */}
@@ -192,8 +227,37 @@ export function ProfileDrawer({
                 trackColor={{ false: COLORS.BORDER, true: COLORS.PRIMARY }}
                 thumbColor={COLORS.BACKGROUND}
                 ios_backgroundColor={COLORS.BORDER}
+                accessibilityLabel={`Require ${getBiometricName(biometricType)}`}
+                accessibilityRole="switch"
               />
             </View>
+          )}
+
+          {/* Legal Links */}
+          {onNavigate && (
+            <>
+              <View style={styles.divider} />
+              <TouchableOpacity
+                style={styles.menuLink}
+                onPress={() => { onNavigate('PrivacyPolicy'); onClose(); }}
+                accessibilityLabel="Privacy Policy"
+                accessibilityRole="button"
+              >
+                <Ionicons name="shield-outline" size={20} color={COLORS.TEXT_PRIMARY} />
+                <Text style={styles.menuItemText}>Privacy Policy</Text>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.TEXT_TERTIARY} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.menuLink}
+                onPress={() => { onNavigate('TermsOfService'); onClose(); }}
+                accessibilityLabel="Terms of Service"
+                accessibilityRole="button"
+              >
+                <Ionicons name="document-text-outline" size={20} color={COLORS.TEXT_PRIMARY} />
+                <Text style={styles.menuItemText}>Terms of Service</Text>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.TEXT_TERTIARY} />
+              </TouchableOpacity>
+            </>
           )}
 
           {/* Debug: Crashlytics Test Buttons (dev only) */}
@@ -239,15 +303,33 @@ export function ProfileDrawer({
           )}
         </View>
 
-        {/* Sign Out Button */}
+        {/* Footer Actions */}
         <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.signOutButton}
-            onPress={handleSignOut}
-          >
-            <Text style={styles.signOutText}>Sign Out</Text>
-            <Ionicons name="log-out-outline" size={22} color={COLORS.DANGER} />
-          </TouchableOpacity>
+          <View style={styles.footerRow}>
+            {user && (
+              <TouchableOpacity
+                style={styles.deleteAccountButton}
+                onPress={handleDeleteAccount}
+                disabled={isDeletingAccount}
+                accessibilityLabel="Delete account"
+                accessibilityRole="button"
+              >
+                <Ionicons name="trash-outline" size={18} color={COLORS.DANGER} />
+                <Text style={styles.deleteAccountText}>
+                  {isDeletingAccount ? 'Deleting...' : 'Delete Account'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.signOutButton}
+              onPress={handleSignOut}
+              accessibilityLabel="Sign out"
+              accessibilityRole="button"
+            >
+              <Text style={styles.signOutText}>Sign Out</Text>
+              <Ionicons name="log-out-outline" size={22} color={COLORS.DANGER} />
+            </TouchableOpacity>
+          </View>
         </View>
       </Animated.View>
     </Modal>
@@ -322,11 +404,15 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 24,
   },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+  },
   signOutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingVertical: 16,
     gap: 8,
   },
   signOutText: {
@@ -351,5 +437,21 @@ const styles = StyleSheet.create({
   debugButtonText: {
     fontSize: 14,
     color: COLORS.TEXT_SECONDARY,
+  },
+  menuLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  deleteAccountText: {
+    fontSize: 14,
+    color: COLORS.DANGER,
+    fontWeight: '500',
   },
 });
