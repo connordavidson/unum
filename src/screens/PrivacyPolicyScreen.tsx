@@ -46,7 +46,7 @@ export function PrivacyPolicyScreen({
         style={styles.scroll}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
       >
-        <Text style={styles.lastUpdated}>Last updated: January 31, 2025</Text>
+        <Text style={styles.lastUpdated}>Last updated: February 2, 2026</Text>
 
         <Text style={styles.sectionTitle}>1. Information We Collect</Text>
         <Text style={styles.body}>
@@ -54,7 +54,7 @@ export function PrivacyPolicyScreen({
           <Text style={styles.bold}>Account Information:</Text> When you sign in with Apple, we receive your Apple ID identifier and, if you choose to share it, your email address. We use this solely to identify your account.{'\n\n'}
           <Text style={styles.bold}>Location Data:</Text> When you create a post, we collect the GPS coordinates from your device to place the content on the map. Location is only collected at the moment of posting.{'\n\n'}
           <Text style={styles.bold}>Photos and Videos:</Text> Content you upload is stored on our servers (Amazon Web Services) and displayed publicly on the map.{'\n\n'}
-          <Text style={styles.bold}>Device Information:</Text> We collect basic device and crash data through Firebase Crashlytics to improve app stability. This includes device model, OS version, and crash logs.
+          <Text style={styles.bold}>Device Information:</Text> We collect basic device and crash data through Firebase Crashlytics to improve app stability. This includes device model, OS version, and crash logs. We also use Firebase Analytics to understand how features are used (e.g., screen views, button taps). Analytics data is not linked to your identity.
         </Text>
 
         <Text style={styles.sectionTitle}>2. How We Use Your Information</Text>
@@ -86,8 +86,9 @@ export function PrivacyPolicyScreen({
           We use the following third-party services:{'\n\n'}
           • <Text style={styles.bold}>Apple Sign-In</Text> — Authentication{'\n'}
           • <Text style={styles.bold}>Amazon Web Services</Text> — Data storage, content moderation{'\n'}
-          • <Text style={styles.bold}>Google Maps</Text> — Map display{'\n'}
-          • <Text style={styles.bold}>Firebase Crashlytics</Text> — Crash reporting and analytics{'\n\n'}
+          • <Text style={styles.bold}>Apple Maps</Text> — Map display{'\n'}
+          • <Text style={styles.bold}>Firebase Crashlytics</Text> — Crash reporting{'\n'}
+          • <Text style={styles.bold}>Firebase Analytics</Text> — Usage analytics{'\n\n'}
           These services have their own privacy policies governing their use of your data.
         </Text>
 
