@@ -7,10 +7,13 @@
 
 import { FEATURE_FLAGS, API_CONFIG } from '../shared/constants';
 import { TEST_UPLOADS } from '../data/testUploads';
-import { getAllUploads, getUserVotesMap } from '../api/clients/dynamodb.client';
+import { getAllUploads, getUserVotesMap, getBlockedUserIds } from '../api/clients/dynamodb.client';
 import { getMediaService } from '../services/media.service';
 import { rankUploads } from '../shared/utils/ranking';
 import type { Upload, BoundingBox, VoteType } from '../shared/types';
+import { getLoggingService } from '../services/logging.service';
+
+const log = getLoggingService().createLogger('Feed');
 
 class UploadDataProvider {
   private cache: Upload[] | null = null;
@@ -25,7 +28,7 @@ class UploadDataProvider {
   async getAll(userId?: string): Promise<Upload[]> {
     // Return cache if valid and for same user
     if (this.cache && Date.now() - this.cacheTime < this.CACHE_TTL && this.cacheUserId === userId) {
-      console.log('[UploadDataProvider] Using cached data:', this.cache.length, 'uploads');
+      log.debug('Using cached data', { count: String(this.cache.length) });
       return this.cache;
     }
 
@@ -34,12 +37,11 @@ class UploadDataProvider {
     // Fetch from AWS if enabled
     if (FEATURE_FLAGS.USE_AWS_BACKEND) {
       try {
-        console.log('[UploadDataProvider] Fetching from AWS...');
         const awsData = await this.fetchFromAWS(userId);
         uploads = awsData;
-        console.log('[UploadDataProvider] AWS returned', awsData.length, 'uploads');
+        log.debug('AWS returned uploads', { count: String(awsData.length) });
       } catch (err) {
-        console.error('[UploadDataProvider] AWS fetch failed:', err);
+        log.error('AWS fetch failed', err);
         // Continue with empty array - will try test data
       }
     }
@@ -47,7 +49,7 @@ class UploadDataProvider {
     // Add test data if enabled
     if (API_CONFIG.USE_TEST_DATA) {
       const testData = TEST_UPLOADS.map(t => ({ ...t }));
-      console.log('[UploadDataProvider] Adding', testData.length, 'test uploads');
+      log.debug('Adding test uploads', { count: String(testData.length) });
       uploads = this.merge(uploads, testData);
     }
 
@@ -59,7 +61,7 @@ class UploadDataProvider {
     this.cacheTime = Date.now();
     this.cacheUserId = userId || null;
 
-    console.log('[UploadDataProvider] Loaded', uploads.length, 'total uploads');
+    log.debug('Loaded uploads', { count: String(uploads.length) });
     return uploads;
   }
 
@@ -74,7 +76,7 @@ class UploadDataProvider {
       return lat >= bbox.minLat && lat <= bbox.maxLat &&
              lon >= bbox.minLon && lon <= bbox.maxLon;
     });
-    console.log('[UploadDataProvider] Filtered to', filtered.length, 'uploads in bounds');
+    log.debug('Filtered uploads in bounds', { count: String(filtered.length) });
     return filtered;
   }
 
@@ -82,7 +84,7 @@ class UploadDataProvider {
    * Invalidate cache (call after creating new upload)
    */
   invalidate(): void {
-    console.log('[UploadDataProvider] Cache invalidated');
+    log.debug('Cache invalidated');
     this.cache = null;
     this.cacheTime = 0;
   }
@@ -102,14 +104,14 @@ class UploadDataProvider {
    */
   private async fetchFromAWS(userId?: string): Promise<Upload[]> {
     // Read operations use unauthenticated credentials - no waiting needed
-    // Fetch uploads and user's votes in parallel
-    const [items, userVotesMap] = await Promise.all([
+    // Fetch uploads, user's votes, and blocked users in parallel
+    const [items, userVotesMap, blockedUserIds] = await Promise.all([
       getAllUploads(),
       userId ? getUserVotesMap(userId) : Promise.resolve({} as Record<string, 'up' | 'down'>),
+      userId ? getBlockedUserIds(userId) : Promise.resolve(new Set<string>()),
     ]);
 
-    console.log('[UploadDataProvider] Got', items.length, 'items from DynamoDB');
-    console.log('[UploadDataProvider] User has', Object.keys(userVotesMap).length, 'votes');
+    log.debug('Fetched from DynamoDB', { items: String(items.length), userVotes: String(Object.keys(userVotesMap).length) });
 
     if (items.length === 0) {
       return [];
@@ -124,7 +126,7 @@ class UploadDataProvider {
           try {
             mediaUrl = await mediaSvc.getDisplayUrl(item.mediaKey);
           } catch (err) {
-            console.error('[UploadDataProvider] Failed to get media URL for', item.mediaKey, err);
+            log.error('Failed to get media URL', err);
           }
         }
 
@@ -144,12 +146,19 @@ class UploadDataProvider {
           caption: item.caption,
           votes: voteCount,
           userVote,
+          userId: item.userId,
+          hidden: item.hidden,
         };
       })
     );
 
-    // Filter out uploads with empty media URLs
-    return uploads.filter(u => u.data && u.data.length > 0);
+    // Filter out: empty media, hidden (reported) uploads, blocked users' uploads
+    return uploads.filter(u => {
+      if (!u.data || u.data.length === 0) return false;
+      if (u.hidden) return false;
+      if (u.userId && blockedUserIds.has(u.userId)) return false;
+      return true;
+    });
   }
 }
 

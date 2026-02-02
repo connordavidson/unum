@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MediaDisplay } from './MediaDisplay';
 import { VoteButtons } from './VoteButtons';
@@ -19,6 +19,7 @@ interface MarkerCalloutProps {
   userVote?: VoteType;
   onVote: (uploadId: string, voteType: VoteType) => void;
   onDownload: (uploadId: string) => void;
+  onReport?: (uploadId: string) => void;
 }
 
 export function MarkerCallout({
@@ -26,6 +27,7 @@ export function MarkerCallout({
   userVote,
   onVote,
   onDownload,
+  onReport,
 }: MarkerCalloutProps) {
   return (
     <View style={styles.container}>
@@ -41,11 +43,23 @@ export function MarkerCallout({
           size="large"
         />
       </View>
-      <View style={styles.timestamp}>
-        <Ionicons name="time-outline" size={12} color={COLORS.TEXT_TERTIARY} />
-        <Text style={styles.timestampText}>
-          {formatTimestamp(upload.timestamp)}
-        </Text>
+      <View style={styles.footer}>
+        <View style={styles.timestamp}>
+          <Ionicons name="time-outline" size={12} color={COLORS.TEXT_TERTIARY} />
+          <Text style={styles.timestampText}>
+            {formatTimestamp(upload.timestamp)}
+          </Text>
+        </View>
+        {onReport && (
+          <TouchableOpacity
+            onPress={() => onReport(upload.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Report post"
+            accessibilityRole="button"
+          >
+            <Ionicons name="flag-outline" size={14} color={COLORS.TEXT_TERTIARY} />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -70,10 +84,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   timestamp: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 4,
   },
   timestampText: {

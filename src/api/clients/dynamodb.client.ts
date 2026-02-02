@@ -26,6 +26,8 @@ import type {
   DynamoUploadItem,
   DynamoVoteItem,
   DynamoUserItem,
+  DynamoReportItem,
+  DynamoBlockItem,
   DynamoQueryOptions,
 } from '../types';
 
@@ -930,6 +932,197 @@ export async function batchDelete(
         })
       );
     }
+  });
+}
+
+// ============ Report Operations ============
+
+/**
+ * Create a report on an upload
+ * Increments reportCount on the upload and auto-hides if threshold reached
+ */
+export async function createReport(
+  uploadId: string,
+  reporterId: string,
+  reason: DynamoReportItem['reason'],
+  details?: string
+): Promise<{ reportCount: number; hidden: boolean }> {
+  const now = new Date().toISOString();
+
+  const reportItem: DynamoReportItem = {
+    PK: createUploadPK(uploadId),
+    SK: `REPORT#${reporterId}`,
+    uploadId,
+    reporterId,
+    reason,
+    details,
+    createdAt: now,
+  };
+
+  // Write the report item
+  await withRetry(async () => {
+    const docClient = await getWriteDocClient();
+    await docClient.send(
+      new PutCommand({
+        TableName: dynamoConfig.tableName,
+        Item: reportItem,
+      })
+    );
+  });
+
+  // Increment report count and check threshold
+  const result = await withRetry(async () => {
+    const docClient = await getWriteDocClient();
+    return docClient.send(
+      new UpdateCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUploadPK(uploadId),
+          SK: createUploadSK(),
+        },
+        UpdateExpression: 'SET reportCount = if_not_exists(reportCount, :zero) + :one, updatedAt = :now',
+        ExpressionAttributeValues: {
+          ':zero': 0,
+          ':one': 1,
+          ':now': now,
+        },
+        ReturnValues: 'UPDATED_NEW',
+      })
+    );
+  });
+
+  const reportCount = (result.Attributes?.reportCount as number) || 1;
+
+  // Auto-hide if report count reaches threshold
+  if (reportCount >= 3) {
+    await withRetry(async () => {
+      const docClient = await getWriteDocClient();
+      await docClient.send(
+        new UpdateCommand({
+          TableName: dynamoConfig.tableName,
+          Key: {
+            PK: createUploadPK(uploadId),
+            SK: createUploadSK(),
+          },
+          UpdateExpression: 'SET hidden = :hidden',
+          ExpressionAttributeValues: {
+            ':hidden': true,
+          },
+        })
+      );
+    });
+    return { reportCount, hidden: true };
+  }
+
+  return { reportCount, hidden: false };
+}
+
+/**
+ * Check if a user has already reported an upload
+ */
+export async function hasUserReported(
+  uploadId: string,
+  userId: string
+): Promise<boolean> {
+  return withRetry(async () => {
+    const docClient = await getReadOnlyDocClient();
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUploadPK(uploadId),
+          SK: `REPORT#${userId}`,
+        },
+      })
+    );
+    return !!result.Item;
+  });
+}
+
+// ============ Block Operations ============
+
+/**
+ * Block a user
+ */
+export async function blockUser(
+  userId: string,
+  blockedUserId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  const blockItem: DynamoBlockItem = {
+    PK: createUserPK(userId),
+    SK: `BLOCK#${blockedUserId}`,
+    userId,
+    blockedUserId,
+    createdAt: now,
+  };
+
+  await withRetry(async () => {
+    const docClient = await getWriteDocClient();
+    await docClient.send(
+      new PutCommand({
+        TableName: dynamoConfig.tableName,
+        Item: blockItem,
+      })
+    );
+  });
+}
+
+/**
+ * Unblock a user
+ */
+export async function unblockUser(
+  userId: string,
+  blockedUserId: string
+): Promise<void> {
+  await withRetry(async () => {
+    const docClient = await getWriteDocClient();
+    await docClient.send(
+      new DeleteCommand({
+        TableName: dynamoConfig.tableName,
+        Key: {
+          PK: createUserPK(userId),
+          SK: `BLOCK#${blockedUserId}`,
+        },
+      })
+    );
+  });
+}
+
+/**
+ * Get all user IDs blocked by a user
+ */
+export async function getBlockedUserIds(
+  userId: string
+): Promise<Set<string>> {
+  return withRetry(async () => {
+    const docClient = await getReadOnlyDocClient();
+    const blockedIds = new Set<string>();
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const result = await docClient.send(
+        new QueryCommand({
+          TableName: dynamoConfig.tableName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+          ExpressionAttributeValues: {
+            ':pk': createUserPK(userId),
+            ':skPrefix': 'BLOCK#',
+          },
+          ExclusiveStartKey: lastKey,
+        })
+      );
+
+      if (result.Items) {
+        for (const item of result.Items as DynamoBlockItem[]) {
+          blockedIds.add(item.blockedUserId);
+        }
+      }
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return blockedIds;
   });
 }
 

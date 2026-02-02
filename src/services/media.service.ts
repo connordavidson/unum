@@ -78,19 +78,12 @@ export class MediaService {
   async upload(params: UploadMediaParams): Promise<MediaUploadResult> {
     const { localPath, uploadId, mediaType, coordinates, timestamp, uploaderId, onProgress } = params;
 
-    console.log('[MediaService] ========== upload() START ==========');
-    console.log('[MediaService] useRemote:', this.useRemote);
-    console.log('[MediaService] localPath:', localPath);
-    console.log('[MediaService] mediaType:', mediaType);
-    console.log('[MediaService] coordinates:', JSON.stringify(coordinates));
-    console.log('[MediaService] timestamp:', timestamp);
-    console.log('[MediaService] uploaderId:', uploaderId);
+    log.debug('upload() start', { useRemote: String(this.useRemote), localPath, mediaType });
 
     // Embed EXIF metadata for photos before upload
     let processedPath = localPath;
     if (mediaType === 'photo' && coordinates) {
-      console.log('[MediaService] Writing EXIF metadata to photo...');
-      console.log('[MediaService] Coordinates for EXIF:', coordinates[0], coordinates[1]);
+      log.debug('Writing EXIF metadata to photo', { lat: coordinates[0], lon: coordinates[1] });
       try {
         processedPath = await writeUploadExif(
           localPath,
@@ -104,7 +97,7 @@ export class MediaService {
         // Continue with original path
       }
     } else {
-      console.log('[MediaService] Skipping EXIF - isPhoto:', mediaType === 'photo', 'hasCoords:', !!coordinates);
+      log.debug('Skipping EXIF', { isPhoto: String(mediaType === 'photo'), hasCoords: String(!!coordinates) });
     }
 
     // Always cache locally first
@@ -122,7 +115,7 @@ export class MediaService {
 
     // If remote is not enabled, return local result
     if (!this.useRemote) {
-      console.log('[MediaService] Remote not enabled, returning local result');
+      log.debug('Remote not enabled, returning local result');
       if (onProgress) {
         onProgress(100);
       }
@@ -130,24 +123,25 @@ export class MediaService {
     }
 
     // Upload to S3
-    // Note: We throw errors during initial setup/debugging.
-    // For production offline-first behavior, wrap in try/catch and return localResult.
-    console.log('[MediaService] Uploading to S3...');
-    const remoteResult = await this.remoteRepo.upload(
-      processedPath,
-      uploadId,
-      mediaType,
-      (progress) => {
-        // Remote upload uses 20-100% of progress
-        if (onProgress) {
-          onProgress(20 + Math.round(progress * 0.8));
+    try {
+      const remoteResult = await this.remoteRepo.upload(
+        processedPath,
+        uploadId,
+        mediaType,
+        (progress) => {
+          // Remote upload uses 20-100% of progress
+          if (onProgress) {
+            onProgress(20 + Math.round(progress * 0.8));
+          }
         }
-      }
-    );
+      );
 
-    // Return remote result with S3 key
-    console.log('[MediaService] S3 upload successful:', remoteResult.key);
-    return remoteResult;
+      return remoteResult;
+    } catch (error) {
+      log.error('S3 upload failed, returning local result', error);
+      if (onProgress) onProgress(100);
+      return localResult;
+    }
   }
 
   // ============ Download ============

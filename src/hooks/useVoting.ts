@@ -34,6 +34,7 @@ interface UseVotingOptions {
 
 export function useVoting(options: UseVotingOptions = {}): UseVotingResult {
   const [isVoting, setIsVoting] = useState(false);
+  const isVotingRef = useRef(false);
   const userIdRef = useRef(options.userId || '');
 
   // Update userId ref when it changes
@@ -47,18 +48,21 @@ export function useVoting(options: UseVotingOptions = {}): UseVotingResult {
     currentUploads: Upload[],
     onUploadsChange: (uploads: Upload[]) => void
   ) => {
+    if (isVotingRef.current) return;
+
     const userId = userIdRef.current;
     if (!userId) {
-      console.error('[useVoting] No user ID available - user must be signed in to vote');
+      if (__DEV__) console.error('[useVoting] No user ID available - user must be signed in to vote');
       return;
     }
 
     if (!FEATURE_FLAGS.USE_AWS_BACKEND) {
-      console.warn('[useVoting] AWS backend not enabled');
+      if (__DEV__) console.warn('[useVoting] AWS backend not enabled');
       return;
     }
 
     setIsVoting(true);
+    isVotingRef.current = true;
 
     try {
       // Get current vote state from the upload
@@ -93,21 +97,17 @@ export function useVoting(options: UseVotingOptions = {}): UseVotingResult {
       );
       onUploadsChange(newUploads);
 
-      console.log('[useVoting] Vote updated:', {
-        uploadId,
-        voteType,
-        newCount: result.voteCount,
-        userVote: result.userVote,
-      });
+      if (__DEV__) console.log('[useVoting] Vote updated:', { uploadId, voteType, newCount: result.voteCount });
     } catch (err) {
       if (err instanceof AuthenticationRequiredError) {
-        console.warn('[useVoting] Session expired - user must sign in again to vote');
+        if (__DEV__) console.warn('[useVoting] Session expired - user must sign in again to vote');
         throw new Error('Your session has expired. Please sign in again to vote.');
       }
-      console.error('[useVoting] Failed to update vote:', err);
+      if (__DEV__) console.error('[useVoting] Failed to update vote:', err);
       throw err;
     } finally {
       setIsVoting(false);
+      isVotingRef.current = false;
     }
   }, []);
 

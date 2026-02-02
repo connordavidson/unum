@@ -119,6 +119,8 @@ export function LockScreen({
             style={styles.unlockButton}
             onPress={handleAuthenticate}
             activeOpacity={0.8}
+            accessibilityLabel={`Unlock with ${getBiometricName(biometricType)}`}
+            accessibilityRole="button"
           >
             <Ionicons
               name={getIcon()}

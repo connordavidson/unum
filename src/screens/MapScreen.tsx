@@ -26,6 +26,9 @@ import { useAnalytics } from '../hooks/useAnalytics';
 import { FeedPanel } from '../components/FeedPanel';
 import { MarkerCallout } from '../components/MarkerCallout';
 import { ProfileDrawer } from '../components/ProfileDrawer';
+import { ReportModal } from '../components/ReportModal';
+import { createReport, hasUserReported } from '../api/clients/dynamodb.client';
+import { getBlockService } from '../services/block.service';
 import { COLORS, MAP_CONFIG, SHADOWS, BUTTON_SIZES } from '../shared/constants';
 import { toLatLng } from '../shared/utils';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -62,6 +65,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
   const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [profileDrawerVisible, setProfileDrawerVisible] = useState(false);
+  const [reportUploadId, setReportUploadId] = useState<string | null>(null);
 
   // Auth state for gating camera access
   const { auth } = useAuthContext();
@@ -223,6 +227,35 @@ export function MapScreen({ navigation }: MapScreenProps) {
     [auth.isAuthenticated, auth.isAppleSignInAvailable, navigation, handleVote, userVotes, trackVote]
   );
 
+  // Report handler
+  const handleReport = useCallback((uploadId: string) => {
+    if (!auth.isAuthenticated) {
+      navigation.navigate('SignIn');
+      return;
+    }
+    setReportUploadId(uploadId);
+  }, [auth.isAuthenticated, navigation]);
+
+  const handleReportSubmit = useCallback(async (reason: 'inappropriate' | 'spam' | 'harassment' | 'other', details?: string) => {
+    if (!reportUploadId || !auth.user?.id) return;
+    const alreadyReported = await hasUserReported(reportUploadId, auth.user.id);
+    if (alreadyReported) {
+      Alert.alert('Already Reported', 'You have already reported this post.');
+      return;
+    }
+    await createReport(reportUploadId, auth.user.id, reason, details);
+    Alert.alert('Report Submitted', 'Thank you for helping keep Unum safe.');
+  }, [reportUploadId, auth.user?.id]);
+
+  const handleBlockUser = useCallback(async () => {
+    if (!reportUploadId || !auth.user?.id) return;
+    const upload = uploads.find(u => u.id === reportUploadId);
+    if (!upload?.userId) return;
+    await getBlockService().blockUser(auth.user.id, upload.userId);
+    Alert.alert('User Blocked', 'You will no longer see posts from this user.');
+    refreshUploads();
+  }, [reportUploadId, auth.user?.id, uploads, refreshUploads]);
+
   // Show loading state while getting location (but still render buttons)
   const isLoading = locationLoading || !position;
 
@@ -262,6 +295,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
                     userVote={userVotes[upload.id]}
                     onVote={handleVoteWithAuth}
                     onDownload={handleDownload}
+                    onReport={handleReport}
                   />
                 </Callout>
               </Marker>
@@ -320,6 +354,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
         style={[styles.accountButton, { top: insets.top + 16 }]}
         onPress={handleAccountPress}
         activeOpacity={0.8}
+        accessibilityLabel="Account"
+        accessibilityRole="button"
       >
         <Ionicons name="person" size={20} color={COLORS.BACKGROUND} />
       </TouchableOpacity>
@@ -330,6 +366,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
         onClose={() => setProfileDrawerVisible(false)}
         user={auth.user}
         onSignOut={auth.signOut}
+        onNavigate={(screen) => navigation.navigate(screen as keyof RootStackParamList)}
       />
 
       {/* Search button */}
@@ -337,6 +374,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
         style={[styles.searchButton, { top: insets.top + 16 }]}
         onPress={() => setSearchVisible(true)}
         activeOpacity={0.8}
+        accessibilityLabel="Search locations"
+        accessibilityRole="button"
       >
         <Ionicons name="search" size={24} color={COLORS.BACKGROUND} />
       </TouchableOpacity>
@@ -346,6 +385,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
         style={styles.cameraButton}
         onPress={handleCameraPress}
         activeOpacity={0.8}
+        accessibilityLabel="Open camera"
+        accessibilityRole="button"
       >
         <Ionicons name="camera" size={28} color={COLORS.BACKGROUND} />
       </TouchableOpacity>
@@ -397,12 +438,22 @@ export function MapScreen({ navigation }: MapScreenProps) {
           uploads={visibleUploads}
           userVotes={userVotes}
           onVote={handleVoteWithAuth}
+          onReport={handleReport}
           onVisibleItemsChange={handleVisibleItemsChange}
           bottomSheetRef={bottomSheetRef}
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
         />
       )}
+
+      {/* Report modal */}
+      <ReportModal
+        visible={reportUploadId !== null}
+        onClose={() => setReportUploadId(null)}
+        onSubmit={handleReportSubmit}
+        onBlockUser={handleBlockUser}
+        uploadId={reportUploadId || ''}
+      />
     </View>
   );
 }

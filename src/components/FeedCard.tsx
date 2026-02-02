@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FEED_CONFIG } from '../shared/constants';
 import { formatTimestamp, truncateText } from '../shared/utils/formatting';
 import { useDownload } from '../hooks/useDownload';
@@ -11,6 +12,7 @@ interface FeedCardProps {
   upload: Upload;
   userVote?: VoteType;
   onVote: (uploadId: string, voteType: VoteType) => void;
+  onReport?: (uploadId: string) => void;
   isVisible?: boolean;
 }
 
@@ -18,6 +20,7 @@ export function FeedCard({
   upload,
   userVote,
   onVote,
+  onReport,
   isVisible = false,
 }: FeedCardProps) {
   const [captionExpanded, setCaptionExpanded] = useState(false);
@@ -41,7 +44,20 @@ export function FeedCard({
 
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.timestamp}>{formatTimestamp(upload.timestamp)}</Text>
+          <View style={styles.headerLeft}>
+            {onReport && (
+              <TouchableOpacity
+                onPress={() => onReport(upload.id)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.reportButton}
+                accessibilityLabel="Report post"
+                accessibilityRole="button"
+              >
+                <Ionicons name="flag-outline" size={16} color={COLORS.TEXT_TERTIARY} />
+              </TouchableOpacity>
+            )}
+            <Text style={styles.timestamp}>{formatTimestamp(upload.timestamp)}</Text>
+          </View>
           <VoteButtons
             uploadId={upload.id}
             votes={upload.votes}
@@ -57,6 +73,8 @@ export function FeedCard({
           <TouchableOpacity
             onPress={() => hasLongCaption && setCaptionExpanded(!captionExpanded)}
             activeOpacity={hasLongCaption ? 0.7 : 1}
+            accessibilityLabel={hasLongCaption ? (captionExpanded ? 'Collapse caption' : 'Expand caption') : undefined}
+            accessibilityRole={hasLongCaption ? 'button' : undefined}
           >
             <Text style={styles.caption}>
               {displayCaption}
@@ -105,5 +123,13 @@ const styles = StyleSheet.create({
   showMore: {
     color: COLORS.TEXT_SECONDARY,
     fontWeight: '500',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reportButton: {
+    padding: 4,
   },
 });
