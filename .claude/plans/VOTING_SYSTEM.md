@@ -64,7 +64,8 @@ const [items, userVotesMap] = await Promise.all([
    - Different/no vote → Cast new vote
 3. Create/update/delete vote item in DynamoDB
 4. Query all vote items for that upload to get fresh count
-5. Update UI with new count and vote state
+5. Persist the computed count to the upload item's cached `voteCount` field
+6. Update UI with new count and vote state
 
 ```typescript
 // In useVoting.handleVote()
@@ -122,7 +123,7 @@ Defined in `src/shared/constants/index.ts`:
 | Operation | DynamoDB Cost |
 |-----------|---------------|
 | Load feed | 1 scan + 1 GSI query |
-| Cast vote | 1 put + 1 query (count) |
+| Cast vote | 1 put + 1 query (count) + 1 update (cached count) |
 
 ### For High Scale
 
