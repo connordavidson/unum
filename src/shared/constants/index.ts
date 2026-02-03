@@ -18,8 +18,8 @@ export const MAP_CONFIG = {
   },
   DEFAULT_ZOOM: 15,
   DEFAULT_DELTA: {
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitudeDelta: 0.15,
+    longitudeDelta: 0.15,
   },
   ZOOM_THRESHOLD: 11,
   UNCLUSTERED_MIN_ZOOM: 8,
@@ -52,6 +52,8 @@ export const STORAGE_KEYS = {
   VOTES: "unum_votes",
   USER_VOTES: "unum_user_votes",
   LOCATION: "unum_user_location",
+  RECENT_SEARCHES: "unum_recent_searches",
+  FAVORITE_CITY: "unum_favorite_city",
 };
 
 // ============ API Configuration ============

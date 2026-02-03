@@ -47,6 +47,12 @@ export interface MapRegion {
   longitudeDelta: number;
 }
 
+export interface SavedCity {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
 // ============ BFF Layer Types ============
 
 /**

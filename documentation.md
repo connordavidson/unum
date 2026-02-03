@@ -618,7 +618,8 @@ The three auth-related services form a chain:
 |------|------|---------|
 | `useLocation` | `hooks/useLocation.ts` | GPS with caching, permission handling, periodic updates |
 | `useMapState` | `hooks/useMapState.ts` | Clusters all uploads once, derives zoom-based marker visibility |
-| `useMapSearch` | `hooks/useMapSearch.ts` | Geocodes search text, animates map to result |
+| `useMapSearch` | `hooks/useMapSearch.ts` | Geocodes search text, animates map to result, accepts `onSearchSuccess` callback |
+| `useSavedCities` | `hooks/useSavedCities.ts` | Recent searches (max 10) + favorite city (AsyncStorage) |
 
 **Camera:**
 
@@ -656,8 +657,9 @@ MapScreen
   │                               └─ rank by time-decay algorithm
   │
   ├─ useLocation()           ──▶ GPS coordinates + caching
+  ├─ useSavedCities()        ──▶ recent searches + favorite city (AsyncStorage)
   ├─ useMapState(uploads)    ──▶ clustering + zoom-based visibility flags
-  └─ useMapSearch()          ──▶ geocoding search
+  └─ useMapSearch()          ──▶ geocoding search + navigateToCity
 ```
 
 ### Context Providers
@@ -711,9 +713,10 @@ GestureHandlerRootView
 - Interactive map with markers (individual pins at high zoom, clustered circles at low zoom)
 - Bottom sheet feed panel with pull-to-refresh
 - Profile drawer (left slide, authenticated only)
-- Search modal (geocoding)
+- Search modal with recent searches and favorite city starring
 - Camera button (requires auth, navigates to Camera)
 - Marker callouts with voting + download
+- Initial position: favorite city (if set) → GPS → default center
 
 **CameraScreen** (`src/screens/CameraScreen.tsx`) - Modal:
 - Live camera view (front/back toggle)
@@ -1250,3 +1253,52 @@ Upload data flows through a layered pipeline:
 - **`refreshUploads` callback is stable across auth state changes.** It reads `userIdRef.current` (a ref) instead of depending on `userId` state. This prevents auth initialization (`undefined` → `deviceId` → `appleUserId`) from triggering `useFocusEffect`.
 - **Failed AWS fetches return stale cache, not empty arrays.** `UploadDataProvider.getAll()` only caches successful fetches. On failure, it returns the previous cached data as a fallback.
 - **Media URL failures fall back to `mediaKey`.** If `getDisplayUrl()` throws or returns empty, the raw S3 key is used instead of filtering out the upload.
+- **Favorite city overrides GPS for initial map position.** `MapScreen` computes `initialPosition` as: favorite city (if set) → GPS position → default center. `savedCitiesLoading` is checked first so favorite city can take priority over GPS. If a favorite city is set, the loading screen is skipped once saved cities load (no need to wait for GPS).
+
+---
+
+## 19. Saved City Feature
+
+### Overview
+
+Users can star a previously searched city as their "favorite." When a favorite is set, the map auto-centers on that city when the app opens, instead of using GPS.
+
+### Storage
+
+| Key | Type | Contents |
+|-----|------|----------|
+| `unum_recent_searches` | `SavedCity[]` | Up to 10 recent search locations (newest first) |
+| `unum_favorite_city` | `SavedCity \| null` | The single starred city, or absent if none |
+
+```typescript
+interface SavedCity {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+```
+
+### Hook: `useSavedCities` (`src/hooks/useSavedCities.ts`)
+
+Returns `{ recentSearches, favoriteCity, loading, addRecentSearch, toggleFavorite, removeRecent }`.
+
+- **`addRecentSearch(city)`** — Prepends to recent list, deduplicates by name (case-insensitive), caps at 10.
+- **`toggleFavorite(city)`** — If city matches current favorite, clears it. Otherwise sets it as the new favorite.
+- **`removeRecent(name)`** — Removes from recents. Also clears favorite if the removed city was the favorite.
+
+### Search Modal UI
+
+When the search input is empty, recent searches appear as a list below the input:
+- Each row has a star icon (left) and city name (right, tappable to navigate)
+- Yellow filled star = current favorite. Gray outline star = not favorited.
+- Tapping the star toggles favorite. Tapping the name navigates the map and closes the modal.
+- Successful new searches are automatically added to the recent list via the `onSearchSuccess` callback.
+
+### Map Initialization Priority
+
+```
+useSavedCities() → favoriteCity?
+  ├─ Yes → use favorite coords as initialPosition (skip GPS wait)
+  └─ No  → useLocation() → GPS position (or cached/default)
+           → pass to useMapState(uploads, initialPosition)
+```
