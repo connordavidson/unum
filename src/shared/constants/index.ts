@@ -18,8 +18,8 @@ export const MAP_CONFIG = {
   },
   DEFAULT_ZOOM: 15,
   DEFAULT_DELTA: {
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitudeDelta: 0.15,
+    longitudeDelta: 0.15,
   },
   ZOOM_THRESHOLD: 11,
   UNCLUSTERED_MIN_ZOOM: 8,
@@ -44,6 +44,7 @@ export const CAMERA_CONFIG = {
   ZOOM_SCALE_PX: 400,
   MAX_VIDEO_DURATION: 60,
   PHOTO_QUALITY: 0.8,
+  LOCK_SLIDE_THRESHOLD_PX: 80,
 };
 
 // ============ Storage Keys ============
@@ -52,6 +53,8 @@ export const STORAGE_KEYS = {
   VOTES: "unum_votes",
   USER_VOTES: "unum_user_votes",
   LOCATION: "unum_user_location",
+  RECENT_SEARCHES: "unum_recent_searches",
+  FAVORITE_CITY: "unum_favorite_city",
 };
 
 // ============ API Configuration ============

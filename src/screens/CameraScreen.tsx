@@ -43,6 +43,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     requestPermission,
     facing,
     isRecording,
+    isRecordingLocked,
     isCameraReady,
     zoom,
     capturedPhoto,
@@ -50,6 +51,8 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     cameraRef,
     onCameraReady,
     flipCamera,
+    lockRecording,
+    stopLockedRecording,
     clearMedia,
     setZoom,
     handlePressIn,
@@ -81,21 +84,29 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     }
   }, [recordedVideo, track]);
 
-  // Shared values for vertical slide-to-zoom
+  // Shared values for vertical slide-to-zoom and recording lock
   const isRecordingShared = useSharedValue(false);
+  const isLockedShared = useSharedValue(false);
   const baselineY = useSharedValue(0);
   const hasSetBaseline = useSharedValue(false);
   const gestureActive = useSharedValue(false);
+  const zoomBase = useSharedValue(0); // persists zoom level across locked gestures
 
-  // Keep shared value in sync with isRecording state
+  // Keep shared values in sync with React state
   useEffect(() => {
     isRecordingShared.value = isRecording;
-    // Reset baseline when recording stops
+    // Reset baseline and lock when recording stops
     if (!isRecording) {
       hasSetBaseline.value = false;
       baselineY.value = 0;
+      isLockedShared.value = false;
+      zoomBase.value = 0;
     }
-  }, [isRecording, isRecordingShared, hasSetBaseline, baselineY]);
+  }, [isRecording, isRecordingShared, hasSetBaseline, baselineY, isLockedShared, zoomBase]);
+
+  useEffect(() => {
+    isLockedShared.value = isRecordingLocked;
+  }, [isRecordingLocked, isLockedShared]);
 
   // Callbacks for gesture handlers (must be called via runOnJS from worklets)
   const onGestureStart = useCallback(() => {
@@ -112,39 +123,94 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     setZoom(newZoom);
   }, [setZoom]);
 
-  // Pan gesture for capture button: handles tap, hold-to-record, and slide-to-zoom
+  const onLockRecording = useCallback(() => {
+    lockRecording();
+  }, [lockRecording]);
+
+  const onStopLockedRecording = useCallback(() => {
+    stopLockedRecording();
+  }, [stopLockedRecording]);
+
+  // Pan gesture for capture button: handles tap, hold-to-record, slide-to-zoom, and slide-to-lock
   const captureGesture = Gesture.Pan()
     .minDistance(0)
     .onTouchesDown(() => {
       'worklet';
       gestureActive.value = true;
+
+      // If recording is locked, this tap stops recording
+      if (isLockedShared.value && isRecordingShared.value) {
+        runOnJS(onStopLockedRecording)();
+        return;
+      }
+
       runOnJS(onGestureStart)();
     })
     .onTouchesUp(() => {
       'worklet';
-      // Always fire when finger is lifted
       if (gestureActive.value) {
         gestureActive.value = false;
         hasSetBaseline.value = false;
         baselineY.value = 0;
+
+        // If locked, don't call onGestureEnd — recording continues
+        if (isLockedShared.value) {
+          return;
+        }
+
         runOnJS(onGestureEnd)();
       }
     })
     .onUpdate((event) => {
       'worklet';
-      // Only zoom while recording
       if (isRecordingShared.value) {
-        // Set baseline on first movement after recording starts
+        // Lock detection: slide right beyond threshold
+        if (!isLockedShared.value && event.translationX > CAMERA_CONFIG.LOCK_SLIDE_THRESHOLD_PX) {
+          // Capture current zoom as base before locking
+          const delta = -(event.absoluteY - baselineY.value);
+          zoomBase.value = Math.max(0, Math.min(1, delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
+          runOnJS(onLockRecording)();
+        }
+
+        // Zoom: vertical movement (unchanged)
         if (!hasSetBaseline.value) {
           baselineY.value = event.absoluteY;
           hasSetBaseline.value = true;
         }
-        // Calculate zoom: moving UP (negative delta) = zoom IN
         const delta = -(event.absoluteY - baselineY.value);
-        // Scale: ZOOM_SCALE_PX of movement = full zoom range
         const newZoom = Math.max(0, Math.min(1, delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
         runOnJS(updateZoom)(newZoom);
       }
+    });
+
+  // Full-screen zoom gesture for locked recording
+  // Rendered on a transparent overlay ON TOP of CameraView so touches aren't consumed by the native camera
+  const lockedZoomGesture = Gesture.Pan()
+    .minDistance(5)
+    .onBegin((event) => {
+      'worklet';
+      if (isLockedShared.value && isRecordingShared.value) {
+        baselineY.value = event.absoluteY;
+        hasSetBaseline.value = true;
+      }
+    })
+    .onUpdate((event) => {
+      'worklet';
+      if (isLockedShared.value && isRecordingShared.value && hasSetBaseline.value) {
+        const delta = -(event.absoluteY - baselineY.value);
+        const newZoom = Math.max(0, Math.min(1, zoomBase.value + delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
+        runOnJS(updateZoom)(newZoom);
+      }
+    })
+    .onEnd((event) => {
+      'worklet';
+      // Persist zoom level so the next gesture starts from here
+      if (hasSetBaseline.value) {
+        const delta = -(event.absoluteY - baselineY.value);
+        zoomBase.value = Math.max(0, Math.min(1, zoomBase.value + delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
+      }
+      hasSetBaseline.value = false;
+      baselineY.value = 0;
     });
 
   const [caption, setCaption] = React.useState('');
@@ -184,16 +250,18 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     };
   }, [keyboardOffset]);
 
-  // Video player for preview
-  const videoPlayer = useVideoPlayer(recordedVideo || '', (player) => {
+  // Video player for preview — use null source so the hook never races with our explicit load
+  const videoPlayer = useVideoPlayer(null, (player) => {
     player.loop = true;
     player.muted = false;
   });
 
-  // Auto-play when video is recorded
+  // Load and auto-play when video is recorded
   useEffect(() => {
     if (recordedVideo && videoPlayer) {
-      videoPlayer.play();
+      videoPlayer.replaceAsync(recordedVideo).then(() => {
+        videoPlayer.play();
+      });
     }
   }, [recordedVideo, videoPlayer]);
 
@@ -470,6 +538,13 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
         onCameraReady={onCameraReady}
       />
 
+      {/* Transparent zoom overlay — sits ON TOP of CameraView so gestures aren't consumed by native camera */}
+      {isRecordingLocked && (
+        <GestureDetector gesture={lockedZoomGesture}>
+          <View style={styles.zoomOverlay} collapsable={false} />
+        </GestureDetector>
+      )}
+
       {/* Overlay controls - positioned absolutely on top of camera */}
       {/* Close button */}
       <TouchableOpacity
@@ -484,7 +559,13 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       {/* Capture controls */}
       <View style={[styles.controls, { paddingBottom: insets.bottom + 32 }]}>
         <Text style={styles.hint}>
-          {isRecording ? 'Recording... Slide up to zoom' : !isCameraReady ? 'Loading camera...' : 'Tap for photo, hold for video'}
+          {isRecordingLocked
+            ? 'Locked. Slide to zoom, tap to stop.'
+            : isRecording
+              ? 'Recording... Slide up to zoom, right to lock'
+              : !isCameraReady
+                ? 'Loading camera...'
+                : 'Tap for photo, hold for video'}
         </Text>
 
         <View style={styles.captureRow}>
@@ -504,17 +585,31 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
               style={[
                 styles.captureButton,
                 isRecording && styles.captureButtonRecording,
+                isRecordingLocked && styles.captureButtonLocked,
                 !isCameraReady && styles.captureButtonDisabled,
               ]}
-              accessibilityLabel={isRecording ? 'Recording video' : 'Capture photo or hold for video'}
+              accessibilityLabel={
+                isRecordingLocked
+                  ? 'Locked. Slide to zoom, tap to stop.'
+                  : isRecording
+                    ? 'Recording video'
+                    : 'Capture photo or hold for video'
+              }
               accessibilityRole="button"
             >
-              {isRecording && <View style={styles.recordingIndicator} />}
+              {isRecording && !isRecordingLocked && <View style={styles.recordingIndicator} />}
+              {isRecordingLocked && <Ionicons name="square" size={32} color={COLORS.BACKGROUND} />}
             </View>
           </GestureDetector>
 
-          {/* Empty space to balance the layout */}
-          <View style={styles.flipButtonPlaceholder} />
+          {/* Lock target icon — visible while recording, before lock engages */}
+          <View style={styles.flipButtonPlaceholder}>
+            {isRecording && !isRecordingLocked && (
+              <View style={styles.lockIndicator}>
+                <Ionicons name="lock-closed" size={20} color="rgba(255, 255, 255, 0.6)" />
+              </View>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -533,6 +628,9 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  zoomOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   closeButton: {
     position: 'absolute',
@@ -555,6 +653,16 @@ const styles = StyleSheet.create({
   flipButtonPlaceholder: {
     width: BUTTON_SIZES.MEDIUM,
     height: BUTTON_SIZES.MEDIUM,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lockIndicator: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   controls: {
     position: 'absolute',
@@ -582,6 +690,10 @@ const styles = StyleSheet.create({
   },
   captureButtonRecording: {
     backgroundColor: COLORS.DANGER,
+  },
+  captureButtonLocked: {
+    backgroundColor: COLORS.DANGER,
+    borderColor: COLORS.DANGER,
   },
   captureButtonDisabled: {
     opacity: 0.5,

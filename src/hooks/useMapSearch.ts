@@ -8,9 +8,11 @@
 import { useState, useCallback, RefObject } from 'react';
 import * as Location from 'expo-location';
 import type MapView from 'react-native-maps';
+import type { SavedCity } from '../shared/types';
 
 interface UseMapSearchConfig {
   mapRef: RefObject<MapView | null>;
+  onSearchSuccess?: (city: SavedCity) => void;
 }
 
 interface UseMapSearchResult {
@@ -28,9 +30,11 @@ interface UseMapSearchResult {
   searchError: string | null;
   /** Execute the search and animate map to result */
   handleSearch: () => Promise<void>;
+  /** Navigate to a saved city without geocoding */
+  navigateToCity: (city: SavedCity) => void;
 }
 
-export function useMapSearch({ mapRef }: UseMapSearchConfig): UseMapSearchResult {
+export function useMapSearch({ mapRef, onSearchSuccess }: UseMapSearchConfig): UseMapSearchResult {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -55,6 +59,7 @@ export function useMapSearch({ mapRef }: UseMapSearchConfig): UseMapSearchResult
           },
           500
         );
+        onSearchSuccess?.({ name: searchQuery.trim(), latitude, longitude });
         setSearchVisible(false);
         setSearchQuery('');
       } else {
@@ -65,7 +70,21 @@ export function useMapSearch({ mapRef }: UseMapSearchConfig): UseMapSearchResult
     } finally {
       setSearching(false);
     }
-  }, [searchQuery, mapRef]);
+  }, [searchQuery, mapRef, onSearchSuccess]);
+
+  const navigateToCity = useCallback((city: SavedCity) => {
+    mapRef.current?.animateToRegion(
+      {
+        latitude: city.latitude,
+        longitude: city.longitude,
+        latitudeDelta: 0.15,
+        longitudeDelta: 0.15,
+      },
+      500
+    );
+    setSearchVisible(false);
+    setSearchQuery('');
+  }, [mapRef]);
 
   return {
     searchVisible,
@@ -75,5 +94,6 @@ export function useMapSearch({ mapRef }: UseMapSearchConfig): UseMapSearchResult
     searching,
     searchError,
     handleSearch,
+    navigateToCity,
   };
 }

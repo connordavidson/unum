@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from 'react-native';
 import MapView, { Marker, Circle, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +23,7 @@ import { useAuthContext } from '../contexts/AuthContext';
 import { useMapState } from '../hooks/useMapState';
 import { useDownload } from '../hooks/useDownload';
 import { useMapSearch } from '../hooks/useMapSearch';
+import { useSavedCities } from '../hooks/useSavedCities';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { FeedPanel } from '../components/FeedPanel';
 import { MarkerCallout } from '../components/MarkerCallout';
@@ -33,6 +35,7 @@ import { COLORS, MAP_CONFIG, SHADOWS, BUTTON_SIZES } from '../shared/constants';
 import { toLatLng } from '../shared/utils';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
+import type { SavedCity, Coordinates } from '../shared/types';
 
 type MapScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Map'>;
@@ -45,7 +48,16 @@ export function MapScreen({ navigation }: MapScreenProps) {
 
   const { position, loading: locationLoading } = useLocation();
 
-  // Search hook
+  // Saved cities (recent searches + favorite)
+  const {
+    recentSearches,
+    favoriteCity,
+    loading: savedCitiesLoading,
+    addRecentSearch,
+    toggleFavorite,
+  } = useSavedCities();
+
+  // Search hook — save successful searches to recents
   const {
     searchVisible,
     setSearchVisible,
@@ -54,13 +66,22 @@ export function MapScreen({ navigation }: MapScreenProps) {
     searching,
     searchError,
     handleSearch: handleSearchBase,
-  } = useMapSearch({ mapRef });
+    navigateToCity,
+  } = useMapSearch({
+    mapRef,
+    onSearchSuccess: addRecentSearch,
+  });
 
   // Analytics-wrapped search handler
   const handleSearch = useCallback(() => {
     trackSearch();
     handleSearchBase();
   }, [handleSearchBase, trackSearch]);
+
+  // Handle tapping a recent search suggestion
+  const handleSuggestionPress = useCallback((city: SavedCity) => {
+    navigateToCity(city);
+  }, [navigateToCity]);
 
   const { uploads, userVotes, handleVote, refreshUploads, invalidateCache } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -89,6 +110,17 @@ export function MapScreen({ navigation }: MapScreenProps) {
     }, [refreshUploads])
   );
   const { createDownloadHandler } = useDownload();
+
+  // Determine initial map position: favorite city > GPS > default
+  // Wait for saved cities to load so favorite city can take priority over GPS
+  const initialPosition = useMemo(() => {
+    if (savedCitiesLoading) return null;
+    if (favoriteCity) {
+      return { latitude: favoriteCity.latitude, longitude: favoriteCity.longitude } as unknown as Coordinates;
+    }
+    return position;
+  }, [savedCitiesLoading, favoriteCity, position]);
+
   const {
     region,
     zoomLevel,
@@ -97,7 +129,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
     showIndividualMarkers,
     showUnclusteredMarkers,
     handleRegionChange,
-  } = useMapState(uploads, position);
+  } = useMapState(uploads, initialPosition);
 
   // Handle map region change - update display filters only.
   // Data is already complete from getAll(); no need to re-fetch on zoom/pan.
@@ -243,8 +275,9 @@ export function MapScreen({ navigation }: MapScreenProps) {
     refreshUploads();
   }, [reportUploadId, auth.user?.id, uploads, refreshUploads, invalidateCache]);
 
-  // Show loading state while getting location (but still render buttons)
-  const isLoading = locationLoading || !position;
+  // Show loading state while resolving initial position.
+  // If a favorite city is set, we don't need to wait for GPS.
+  const isLoading = savedCitiesLoading || (!favoriteCity && (locationLoading || !position));
 
   return (
     <View style={styles.container}>
@@ -258,7 +291,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         initialRegion={{
-          ...position,
+          ...(initialPosition || MAP_CONFIG.DEFAULT_CENTER),
           ...MAP_CONFIG.DEFAULT_DELTA,
         }}
         onRegionChange={handleRegionChanging}
@@ -420,6 +453,39 @@ export function MapScreen({ navigation }: MapScreenProps) {
               )}
             </View>
             {searchError && <Text style={styles.searchError}>{searchError}</Text>}
+            {/* Recent searches — only show when search input is empty */}
+            {!searchQuery && recentSearches.length > 0 && (
+              <ScrollView style={styles.recentSearchList} keyboardShouldPersistTaps="handled">
+                <View style={styles.recentSearchDivider} />
+                {recentSearches.map((city) => {
+                  const isFavorite = favoriteCity?.name.toLowerCase() === city.name.toLowerCase();
+                  return (
+                    <View key={city.name} style={styles.recentSearchRow}>
+                      <TouchableOpacity
+                        style={styles.recentSearchStar}
+                        onPress={() => toggleFavorite(city)}
+                        accessibilityLabel={isFavorite ? `Unfavorite ${city.name}` : `Favorite ${city.name}`}
+                        accessibilityRole="button"
+                      >
+                        <Ionicons
+                          name={isFavorite ? 'star' : 'star-outline'}
+                          size={20}
+                          color={isFavorite ? '#FFB300' : COLORS.TEXT_TERTIARY}
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.recentSearchName}
+                        onPress={() => handleSuggestionPress(city)}
+                        accessibilityLabel={`Navigate to ${city.name}`}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.recentSearchText} numberOfLines={1}>{city.name}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -529,6 +595,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingHorizontal: 16,
     paddingBottom: 12,
+  },
+  recentSearchList: {
+    maxHeight: 240,
+  },
+  recentSearchDivider: {
+    height: 1,
+    backgroundColor: COLORS.BORDER,
+    marginHorizontal: 12,
+  },
+  recentSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  recentSearchStar: {
+    padding: 4,
+    marginRight: 8,
+  },
+  recentSearchName: {
+    flex: 1,
+  },
+  recentSearchText: {
+    fontSize: 16,
+    color: COLORS.TEXT_PRIMARY,
   },
   callout: {
     width: 280,
