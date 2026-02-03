@@ -27,6 +27,7 @@ export interface UserVotes {
 }
 
 export interface Cluster {
+  id: string;
   center: Coordinates;
   count: number;
   radius: number;

@@ -60,10 +60,12 @@ export function useMapState(uploads: Upload[], initialPosition?: Coordinates): U
     });
   }, [uploads, region]);
 
-  // Cluster visible uploads
+  // Cluster ALL uploads once (stable across zoom/pan).
+  // No visibility filtering — MapView clips markers outside the viewport natively.
+  // This avoids stale-region bugs where onRegionChangeComplete doesn't fire reliably on iOS.
   const clusters = useMemo(() => {
-    return clusterUploads(visibleUploads);
-  }, [visibleUploads]);
+    return clusterUploads(uploads);
+  }, [uploads]);
 
   // Determine what to show based on zoom level
   const showIndividualMarkers = zoomLevel >= MAP_CONFIG.ZOOM_THRESHOLD;

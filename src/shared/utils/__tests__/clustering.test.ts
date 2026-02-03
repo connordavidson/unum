@@ -7,6 +7,7 @@ import {
   calculateCenter,
   calculateRadius,
   clusterUploads,
+  generateClusterId,
 } from '../clustering';
 import { mockUpload, mockUploadsAtLocations } from '../../../__tests__/utils/testUtils';
 import type { Upload, Coordinates } from '../../types';
@@ -481,6 +482,137 @@ describe('clustering utilities', () => {
       expect(new Set(allIds).size).toBe(6);
       for (let i = 0; i < 6; i++) {
         expect(allIds).toContain(`preserve-${i}`);
+      }
+    });
+  });
+
+  describe('generateClusterId', () => {
+    it('should produce deterministic IDs for the same input', () => {
+      const uploads = [
+        mockUpload({ id: 'a' }),
+        mockUpload({ id: 'b' }),
+        mockUpload({ id: 'c' }),
+      ];
+
+      const id1 = generateClusterId(uploads);
+      const id2 = generateClusterId(uploads);
+
+      expect(id1).toBe(id2);
+    });
+
+    it('should produce the same ID regardless of input order', () => {
+      const uploadsForward = [
+        mockUpload({ id: 'x' }),
+        mockUpload({ id: 'y' }),
+        mockUpload({ id: 'z' }),
+      ];
+      const uploadsReversed = [
+        mockUpload({ id: 'z' }),
+        mockUpload({ id: 'y' }),
+        mockUpload({ id: 'x' }),
+      ];
+
+      expect(generateClusterId(uploadsForward)).toBe(generateClusterId(uploadsReversed));
+    });
+
+    it('should produce different IDs for different member sets', () => {
+      const cluster1 = [mockUpload({ id: 'a' }), mockUpload({ id: 'b' })];
+      const cluster2 = [mockUpload({ id: 'c' }), mockUpload({ id: 'd' })];
+
+      expect(generateClusterId(cluster1)).not.toBe(generateClusterId(cluster2));
+    });
+
+    it('should produce IDs with the cluster- prefix', () => {
+      const uploads = [mockUpload({ id: 'test' })];
+      const id = generateClusterId(uploads);
+
+      expect(id).toMatch(/^cluster-/);
+    });
+  });
+
+  describe('cluster IDs in clusterUploads', () => {
+    it('should assign defined IDs to all large clusters', () => {
+      const uploads = mockUploadsAtLocations(
+        [
+          [37.7749, -122.4194],
+          [37.7750, -122.4195],
+          [37.7751, -122.4193],
+          [37.7748, -122.4196],
+          [37.7752, -122.4192],
+        ],
+        { id: 'lg' }
+      );
+
+      const result = clusterUploads(uploads);
+
+      for (const cluster of result.largeClusters) {
+        expect(cluster.id).toBeDefined();
+        expect(cluster.id).toMatch(/^cluster-/);
+      }
+    });
+
+    it('should assign defined IDs to all small clusters', () => {
+      const uploads = [
+        mockUpload({ id: 'pair-a', coordinates: [45.0, -93.0] }),
+        mockUpload({ id: 'pair-b', coordinates: [45.001, -93.0] }),
+      ];
+
+      const result = clusterUploads(uploads);
+
+      for (const cluster of result.smallClusters) {
+        expect(cluster.id).toBeDefined();
+        expect(cluster.id).toMatch(/^cluster-/);
+      }
+    });
+
+    it('should produce stable IDs when a distant upload is added', () => {
+      // Local cluster
+      const localUploads = [
+        mockUpload({ id: 'local-1', coordinates: [45.0, -93.0] }),
+        mockUpload({ id: 'local-2', coordinates: [45.001, -93.0] }),
+        mockUpload({ id: 'local-3', coordinates: [45.002, -93.0] }),
+        mockUpload({ id: 'local-4', coordinates: [45.003, -93.0] }),
+      ];
+
+      const result1 = clusterUploads(localUploads);
+
+      // Add a distant upload that shouldn't affect the local cluster
+      const withDistant = [
+        ...localUploads,
+        mockUpload({ id: 'distant', coordinates: [30.0, -80.0] }),
+      ];
+
+      const result2 = clusterUploads(withDistant);
+
+      // The local cluster should have the same ID in both cases
+      expect(result1.largeClusters.length).toBeGreaterThanOrEqual(1);
+      expect(result2.largeClusters.length).toBeGreaterThanOrEqual(1);
+
+      const localCluster1 = result1.largeClusters[0];
+      const localCluster2 = result2.largeClusters.find(c =>
+        c.uploads.some(u => u.id === 'local-1')
+      );
+
+      expect(localCluster2).toBeDefined();
+      expect(localCluster1.id).toBe(localCluster2!.id);
+    });
+
+    it('should produce deterministic IDs for merged clusters', () => {
+      // Two groups of uploads close enough that their circles overlap and merge
+      const step = 0.005; // ~556m
+      const uploads = Array.from({ length: 8 }, (_, i) =>
+        mockUpload({
+          id: `merge-${i}`,
+          coordinates: [45.0 + step * i, -93.0],
+        })
+      );
+
+      const result1 = clusterUploads(uploads);
+      const result2 = clusterUploads(uploads);
+
+      expect(result1.largeClusters.length).toBe(result2.largeClusters.length);
+      for (let i = 0; i < result1.largeClusters.length; i++) {
+        expect(result1.largeClusters[i].id).toBe(result2.largeClusters[i].id);
       }
     });
   });

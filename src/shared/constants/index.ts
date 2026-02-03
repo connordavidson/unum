@@ -21,8 +21,8 @@ export const MAP_CONFIG = {
     latitudeDelta: 0.01,
     longitudeDelta: 0.01,
   },
-  ZOOM_THRESHOLD: 13,
-  UNCLUSTERED_MIN_ZOOM: 10,
+  ZOOM_THRESHOLD: 11,
+  UNCLUSTERED_MIN_ZOOM: 8,
 };
 
 // ============ Clustering Configuration ============

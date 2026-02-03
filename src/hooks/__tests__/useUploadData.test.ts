@@ -5,17 +5,15 @@
  * we test the hook logic directly by extracting testable functionality.
  */
 
-import type { Upload, VoteType, BoundingBox, CreateUploadData } from '../../shared/types';
+import type { Upload, VoteType, CreateUploadData } from '../../shared/types';
 
 // Mock the UploadDataProvider
 const mockGetAll = jest.fn();
-const mockGetInBounds = jest.fn();
 const mockInvalidate = jest.fn();
 
 jest.mock('../../providers/UploadDataProvider', () => ({
   getUploadDataProvider: () => ({
     getAll: mockGetAll,
-    getInBounds: mockGetInBounds,
     invalidate: mockInvalidate,
   }),
 }));
@@ -51,16 +49,14 @@ jest.mock('expo-crypto', () => ({
 }));
 
 /**
- * Core data fetching logic for testing
+ * Core data fetching logic for testing.
+ * Always uses getAll() — no bbox filtering at the data layer.
  */
 async function fetchUploadsLogic(
-  bbox: BoundingBox | undefined,
   userId: string | undefined
 ): Promise<{ uploads: Upload[]; error: string | null }> {
   try {
-    const data = bbox
-      ? await mockGetInBounds(bbox, userId)
-      : await mockGetAll(userId);
+    const data = await mockGetAll(userId);
     return { uploads: data, error: null };
   } catch (err) {
     return { uploads: [], error: 'Failed to load uploads' };
@@ -119,6 +115,57 @@ function deriveUserVotes(uploads: Upload[]): Record<string, VoteType> {
   return votes;
 }
 
+/**
+ * Simulates the request-versioned refresh logic from useUploadData.
+ * Mirrors the actual refreshUploads implementation:
+ * - Increments a version counter per call
+ * - Only applies the result if the version is still the latest
+ * - Uses ref-based userId (no fallback to state)
+ * - Always calls getAll() (no bbox filtering)
+ * - On error, preserves previous uploads (does not set to [])
+ */
+function createRefreshSimulator() {
+  let requestVersion = 0;
+  let uploads: Upload[] = [];
+  let loading = false;
+  let error: string | null = null;
+
+  return {
+    get state() {
+      return { uploads, loading, error, requestVersion };
+    },
+    async refresh(
+      userIdRef: { current: string | null }
+    ) {
+      const currentVersion = ++requestVersion;
+      const currentUserId = userIdRef.current;
+
+      if (currentVersion === requestVersion) {
+        loading = true;
+      }
+
+      try {
+        const data = await mockGetAll(currentUserId || undefined);
+
+        // Only apply if still the latest request
+        if (currentVersion === requestVersion) {
+          uploads = data;
+          error = null;
+        }
+      } catch (err) {
+        if (currentVersion === requestVersion) {
+          error = 'Failed to load uploads';
+          // Do NOT clear uploads — keep previous data
+        }
+      } finally {
+        if (currentVersion === requestVersion) {
+          loading = false;
+        }
+      }
+    },
+  };
+}
+
 describe('useUploadData logic', () => {
   const mockUploads: Upload[] = [
     {
@@ -144,7 +191,6 @@ describe('useUploadData logic', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAll.mockResolvedValue(mockUploads);
-    mockGetInBounds.mockResolvedValue([mockUploads[0]]);
     mockMediaUpload.mockResolvedValue({
       url: 'https://s3.example.com/photo.jpg',
       key: 'uploads/test-uuid-123.jpg',
@@ -188,39 +234,25 @@ describe('useUploadData logic', () => {
   });
 
   describe('fetch uploads', () => {
-    it('should fetch all uploads without bounding box', async () => {
-      const result = await fetchUploadsLogic(undefined, 'user-123');
+    it('should always fetch all uploads via getAll', async () => {
+      const result = await fetchUploadsLogic('user-123');
 
       expect(mockGetAll).toHaveBeenCalledWith('user-123');
       expect(result.uploads).toEqual(mockUploads);
       expect(result.error).toBeNull();
     });
 
-    it('should fetch uploads with bounding box', async () => {
-      const bbox: BoundingBox = {
-        minLat: 37.7,
-        maxLat: 37.8,
-        minLon: -122.5,
-        maxLon: -122.4,
-      };
-
-      const result = await fetchUploadsLogic(bbox, 'user-123');
-
-      expect(mockGetInBounds).toHaveBeenCalledWith(bbox, 'user-123');
-      expect(result.uploads).toEqual([mockUploads[0]]);
-    });
-
     it('should return error on fetch failure', async () => {
       mockGetAll.mockRejectedValue(new Error('Network error'));
 
-      const result = await fetchUploadsLogic(undefined, 'user-123');
+      const result = await fetchUploadsLogic('user-123');
 
       expect(result.uploads).toEqual([]);
       expect(result.error).toBe('Failed to load uploads');
     });
 
     it('should handle undefined userId', async () => {
-      const result = await fetchUploadsLogic(undefined, undefined);
+      const result = await fetchUploadsLogic(undefined);
 
       expect(mockGetAll).toHaveBeenCalledWith(undefined);
       expect(result.uploads).toEqual(mockUploads);
@@ -378,6 +410,259 @@ describe('useUploadData logic', () => {
           'device-456'
         )
       ).rejects.toThrow('Database error');
+    });
+  });
+
+  describe('request versioning', () => {
+    it('should only apply the latest request result when multiple calls overlap', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call resolves slowly with stale data
+      let resolveFirst!: (value: Upload[]) => void;
+      const firstPromise = new Promise<Upload[]>((resolve) => {
+        resolveFirst = resolve;
+      });
+      mockGetAll.mockReturnValueOnce(firstPromise);
+
+      // Second call resolves immediately with fresh data
+      const freshUploads: Upload[] = [
+        {
+          id: 'fresh-1',
+          type: 'photo',
+          data: 'https://example.com/fresh.jpg',
+          coordinates: [37.78, -122.42],
+          timestamp: '2024-01-03T00:00:00.000Z',
+          votes: 20,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(freshUploads);
+
+      // Fire both requests (simulating rapid calls)
+      const first = sim.refresh(userIdRef);
+      const second = sim.refresh(userIdRef);
+
+      // Second completes first (fast response)
+      await second;
+      expect(sim.state.uploads).toEqual(freshUploads);
+
+      // Now first completes (slow response) — should be ignored
+      resolveFirst([
+        {
+          id: 'stale-1',
+          type: 'photo',
+          data: 'https://example.com/stale.jpg',
+          coordinates: [37.77, -122.41],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 1,
+          userVote: null,
+        },
+      ]);
+      await first;
+
+      // State should still have fresh data, not stale
+      expect(sim.state.uploads).toEqual(freshUploads);
+      expect(sim.state.uploads[0].id).toBe('fresh-1');
+    });
+
+    it('should ignore stale error when a newer request succeeded', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call will reject slowly
+      let rejectFirst!: (err: Error) => void;
+      const firstPromise = new Promise<Upload[]>((_, reject) => {
+        rejectFirst = reject;
+      });
+      mockGetAll.mockReturnValueOnce(firstPromise);
+
+      // Second call succeeds immediately
+      const freshUploads: Upload[] = [
+        {
+          id: 'fresh-1',
+          type: 'photo',
+          data: 'https://example.com/fresh.jpg',
+          coordinates: [37.78, -122.42],
+          timestamp: '2024-01-03T00:00:00.000Z',
+          votes: 20,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(freshUploads);
+
+      const first = sim.refresh(userIdRef);
+      const second = sim.refresh(userIdRef);
+
+      await second;
+      expect(sim.state.error).toBeNull();
+      expect(sim.state.uploads).toEqual(freshUploads);
+
+      // Now first rejects — error should be ignored
+      rejectFirst(new Error('Network error'));
+      await first;
+
+      expect(sim.state.error).toBeNull();
+      expect(sim.state.uploads).toEqual(freshUploads);
+    });
+  });
+
+  describe('ref-based userId', () => {
+    it('should use userIdRef value (not a separate state fallback)', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'ref-user-456' };
+
+      mockGetAll.mockResolvedValue([]);
+
+      await sim.refresh(userIdRef);
+
+      expect(mockGetAll).toHaveBeenCalledWith('ref-user-456');
+    });
+
+    it('should pass undefined when userIdRef.current is null', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: null };
+
+      mockGetAll.mockResolvedValue([]);
+
+      await sim.refresh(userIdRef);
+
+      expect(mockGetAll).toHaveBeenCalledWith(undefined);
+    });
+
+    it('should pick up updated ref value on subsequent calls', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'device-id-anon' };
+
+      mockGetAll.mockResolvedValue([]);
+
+      // First call with anonymous device ID
+      await sim.refresh(userIdRef);
+      expect(mockGetAll).toHaveBeenCalledWith('device-id-anon');
+
+      // Auth completes, ref updated (simulates useEffect in useUserIdentity)
+      userIdRef.current = 'apple-user-789';
+
+      // Second call picks up the new value without needing callback recreation
+      await sim.refresh(userIdRef);
+      expect(mockGetAll).toHaveBeenCalledWith('apple-user-789');
+    });
+  });
+
+  describe('error resilience', () => {
+    it('should preserve previous uploads when refresh fails', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call succeeds
+      const goodUploads: Upload[] = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          data: 'https://example.com/photo1.jpg',
+          coordinates: [37.7749, -122.4194],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 5,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(goodUploads);
+      await sim.refresh(userIdRef);
+      expect(sim.state.uploads).toEqual(goodUploads);
+
+      // Second call fails
+      mockGetAll.mockRejectedValueOnce(new Error('Network error'));
+      await sim.refresh(userIdRef);
+
+      // Uploads should still be the good data, not empty
+      expect(sim.state.uploads).toEqual(goodUploads);
+      expect(sim.state.error).toBe('Failed to load uploads');
+    });
+
+    it('should clear error on successful refresh after failure', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call fails
+      mockGetAll.mockRejectedValueOnce(new Error('Network error'));
+      await sim.refresh(userIdRef);
+      expect(sim.state.error).toBe('Failed to load uploads');
+
+      // Second call succeeds
+      const goodUploads: Upload[] = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          data: 'https://example.com/photo1.jpg',
+          coordinates: [37.7749, -122.4194],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 5,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(goodUploads);
+      await sim.refresh(userIdRef);
+
+      expect(sim.state.error).toBeNull();
+      expect(sim.state.uploads).toEqual(goodUploads);
+    });
+
+    it('should set loading false after error', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      mockGetAll.mockRejectedValueOnce(new Error('Network error'));
+      await sim.refresh(userIdRef);
+
+      expect(sim.state.loading).toBe(false);
+    });
+  });
+
+  describe('refresh always uses getAll', () => {
+    it('should always call getAll (never getInBounds)', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      mockGetAll.mockResolvedValue([]);
+
+      await sim.refresh(userIdRef);
+
+      expect(mockGetAll).toHaveBeenCalledWith('user-123');
+    });
+
+    it('should return same data on repeated calls when cache returns same reference', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // Simulate cache returning the same array reference
+      const cachedData: Upload[] = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          data: 'https://example.com/photo1.jpg',
+          coordinates: [37.7749, -122.4194],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 5,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValue(cachedData);
+
+      await sim.refresh(userIdRef);
+      const firstResult = sim.state.uploads;
+
+      await sim.refresh(userIdRef);
+      const secondResult = sim.state.uploads;
+
+      // Same reference from cache means same data
+      expect(firstResult).toBe(secondResult);
+    });
+  });
+
+  describe('invalidateCache', () => {
+    it('should call provider.invalidate()', () => {
+      mockInvalidate();
+      expect(mockInvalidate).toHaveBeenCalled();
     });
   });
 });

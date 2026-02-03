@@ -33,16 +33,22 @@ class UploadDataProvider {
     }
 
     let uploads: Upload[] = [];
+    let fetchSucceeded = false;
 
     // Fetch from AWS if enabled
     if (FEATURE_FLAGS.USE_AWS_BACKEND) {
       try {
         const awsData = await this.fetchFromAWS(userId);
         uploads = awsData;
+        fetchSucceeded = true;
         log.debug('AWS returned uploads', { count: String(awsData.length) });
       } catch (err) {
         log.error('AWS fetch failed', err);
-        // Continue with empty array - will try test data
+        // Return stale cache if available rather than empty array
+        if (this.cache) {
+          log.debug('Returning stale cache after fetch failure', { count: String(this.cache.length) });
+          return this.cache;
+        }
       }
     }
 
@@ -51,15 +57,18 @@ class UploadDataProvider {
       const testData = TEST_UPLOADS.map(t => ({ ...t }));
       log.debug('Adding test uploads', { count: String(testData.length) });
       uploads = this.merge(uploads, testData);
+      fetchSucceeded = true;
     }
 
     // Rank by time-decay algorithm (recent + upvoted first, downvoted sinks)
     uploads = rankUploads(uploads);
 
-    // Cache result
-    this.cache = uploads;
-    this.cacheTime = Date.now();
-    this.cacheUserId = userId || null;
+    // Only cache successful fetches — never cache error results
+    if (fetchSucceeded) {
+      this.cache = uploads;
+      this.cacheTime = Date.now();
+      this.cacheUserId = userId || null;
+    }
 
     log.debug('Loaded uploads', { count: String(uploads.length) });
     return uploads;
@@ -81,11 +90,12 @@ class UploadDataProvider {
   }
 
   /**
-   * Invalidate cache (call after creating new upload)
+   * Invalidate cache (call after creating new upload).
+   * Expires the cache so the next getAll() re-fetches, but keeps stale
+   * data available as a fallback if the re-fetch fails.
    */
   invalidate(): void {
     log.debug('Cache invalidated');
-    this.cache = null;
     this.cacheTime = 0;
   }
 
@@ -126,8 +136,13 @@ class UploadDataProvider {
           try {
             mediaUrl = await mediaSvc.getDisplayUrl(item.mediaKey);
           } catch (err) {
-            log.error('Failed to get media URL', err);
+            log.error('Failed to get media URL, using mediaKey as fallback', err);
+            mediaUrl = item.mediaKey;
           }
+        }
+        // If getDisplayUrl returned empty string, fall back to mediaKey
+        if (!mediaUrl && item.mediaKey) {
+          mediaUrl = item.mediaKey;
         }
 
         // Use cached voteCount from upload item (updated when votes change)
@@ -170,4 +185,8 @@ export function getUploadDataProvider(): UploadDataProvider {
     instance = new UploadDataProvider();
   }
   return instance;
+}
+
+export function resetUploadDataProvider(): void {
+  instance = null;
 }

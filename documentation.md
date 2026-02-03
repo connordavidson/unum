@@ -19,6 +19,7 @@
 15. [Legal Pages](#15-legal-pages)
 16. [App Store Submission Configuration](#16-app-store-submission-configuration)
 17. [Geospatial Clustering](#17-geospatial-clustering)
+18. [Feed Data Refresh Architecture](#18-feed-data-refresh-architecture)
 
 ---
 
@@ -616,7 +617,7 @@ The three auth-related services form a chain:
 | Hook | File | Purpose |
 |------|------|---------|
 | `useLocation` | `hooks/useLocation.ts` | GPS with caching, permission handling, periodic updates |
-| `useMapState` | `hooks/useMapState.ts` | Clusters uploads by zoom level, filters by visible region |
+| `useMapState` | `hooks/useMapState.ts` | Clusters all uploads once, derives zoom-based marker visibility |
 | `useMapSearch` | `hooks/useMapSearch.ts` | Geocodes search text, animates map to result |
 
 **Camera:**
@@ -655,7 +656,7 @@ MapScreen
   │                               └─ rank by time-decay algorithm
   │
   ├─ useLocation()           ──▶ GPS coordinates + caching
-  ├─ useMapState(uploads)    ──▶ clustering + region filtering
+  ├─ useMapState(uploads)    ──▶ clustering + zoom-based visibility flags
   └─ useMapSearch()          ──▶ geocoding search
 ```
 
@@ -1162,6 +1163,7 @@ Uses grid-based spatial indexing with BFS (breadth-first search) expansion for t
 | Function | Purpose |
 |----------|---------|
 | `clusterUploads(uploads)` | Main entry point. Returns `{ largeClusters, smallClusters, unclustered }` |
+| `generateClusterId(uploads)` | Deterministic cluster ID from sorted member upload IDs (FNV-1a hash) |
 | `getDistanceMeters(coord1, coord2)` | Haversine distance between two coordinates in meters |
 | `calculateCenter(uploads)` | Arithmetic mean of upload coordinates |
 | `calculateRadius(uploads, center)` | Max distance from center to any upload + padding |
@@ -1186,12 +1188,65 @@ Constants in `src/shared/constants/index.ts` under `CLUSTER_CONFIG`:
 - Neighbor lookup: O(k) per upload where k = uploads in adjacent cells (typically small)
 - Overlap merge: O(m^2) where m = number of large clusters (typically < 20)
 
+### Cluster Identity
+
+Each cluster gets a deterministic `id` derived from its sorted member upload IDs using FNV-1a hashing (`generateClusterId()`). This ensures:
+- Same uploads always produce the same cluster ID
+- Order-independent (sorted before hashing)
+- Stable React keys for `Circle` and `Marker` components
+
 ### Visual Rendering
 
-The clustering results are consumed by `useMapState` hook which passes them to `MapScreen`:
+The clustering results are consumed by `useMapState` hook which passes them to `MapScreen`. Marker visibility is controlled by zoom level:
 
-| Result Type | Map Rendering |
-|-------------|---------------|
-| `largeClusters` | Red semi-transparent circle with upload count label |
-| `smallClusters` | Numbered marker at cluster center |
-| `unclustered` | Individual pin markers |
+| Zoom Level | What Renders |
+|-----------|--------------|
+| < 8 | Large cluster circles only |
+| 8–10 | Large cluster circles + small cluster markers + unclustered markers |
+| ≥ 11 | All individual pin markers + large cluster circles |
+
+| Result Type | Map Rendering | Zoom Condition |
+|-------------|---------------|----------------|
+| `largeClusters` | Red semi-transparent circle (`zIndex: 1`) | Always rendered |
+| `smallClusters` | Marker at cluster center | `!showIndividualMarkers && showUnclusteredMarkers` |
+| `unclustered` | Individual pin markers | `!showIndividualMarkers && showUnclusteredMarkers` |
+
+**Circle key strategy:** Circle components use `key={cluster.id}-z${zoomLevel}` to force native MKCircle overlay re-creation on zoom changes. This prevents an iOS rendering bug where Circle overlays get stuck invisible after zoom animations.
+
+**Zoom thresholds** (in `MAP_CONFIG`):
+- `ZOOM_THRESHOLD: 11` — individual pins appear (~20km view)
+- `UNCLUSTERED_MIN_ZOOM: 8` — unclustered/small cluster markers appear (~140km view)
+
+## 18. Feed Data Refresh Architecture
+
+### Data Flow
+
+Upload data flows through a layered pipeline:
+
+1. **`UploadDataProvider`** (`src/providers/UploadDataProvider.ts`) — Singleton that fetches from DynamoDB, resolves media URLs, applies ranking, and caches results (60s TTL). `getAll()` returns all uploads.
+2. **`useUploadData`** (`src/hooks/useUploadData.ts`) — React hook wrapping the provider. Exposes `refreshUploads()` (no bbox parameter) which calls `provider.getAll()` and sets `uploads` state. Also exposes `invalidateCache()` to force the next `refreshUploads()` to bypass cache. Uses request versioning to prevent stale responses from overwriting fresh data.
+3. **`useMapState`** (`src/hooks/useMapState.ts`) — Clusters ALL `uploads` once (stable across zoom/pan). Clusters are passed to the map unfiltered — `MapView` clips markers outside the viewport natively. Derives `visibleUploads` by filtering `uploads` to the current `region` (used by the feed panel only). Computes `zoomLevel` and marker visibility flags (`showIndividualMarkers`, `showUnclusteredMarkers`).
+4. **`MapScreen`** (`src/screens/MapScreen.tsx`) — Passes `visibleUploads` to `FeedPanel`. Circle keys include `zoomLevel` to force native overlay re-creation on zoom. Uses both `onRegionChangeComplete` and `onRegionChange` (throttled to zoom-level changes) for reliable region tracking on iOS.
+
+### When Data Refreshes
+
+| Trigger | Mechanism | Effect |
+|---------|-----------|--------|
+| Screen gains focus | `useFocusEffect` → `refreshUploads()` | Cache hit: same ref, React no-op. Cache miss: fresh fetch. |
+| Map pan/zoom | `onRegionChangeComplete` + `onRegionChange` (zoom-throttled) → `handleRegionChange` | Region updates only. No data fetch. Feed re-filters `visibleUploads`; Circle keys update for native re-creation. |
+| Pull-to-refresh | `invalidateCache()` → `refreshUploads()` | Forces fresh fetch from DynamoDB. |
+| After blocking a user | `invalidateCache()` → `refreshUploads()` | Forces fresh fetch, blocked user's uploads excluded. |
+| After creating an upload | `provider.invalidate()` | Cache expires, next `refreshUploads()` re-fetches. |
+
+### Key Design Decisions
+
+- **Map pan/zoom does NOT trigger data fetches.** `handleMapRegionChange` only updates the region state. `visibleUploads` (for the feed panel) re-filters, but cluster data is unaffected. This prevents cluster circles from moving or duplicating on zoom.
+- **`getAll()` returns the same array reference on cache hit.** `setUploads(sameRef)` is a React no-op (`Object.is` check), so no re-render and no reclustering occurs. Clusters remain stable until the underlying data actually changes.
+- **Clusters are NOT filtered by viewport.** `useMapState` clusters ALL `uploads` in a single `useMemo` and passes the full result to `MapScreen`. The `MapView` natively clips Circle and Marker components outside the visible area.
+- **Circle keys include `zoomLevel` for native overlay re-creation.** On iOS, `Circle` (MKCircle) overlays can get stuck invisible after zoom animations. Including `zoomLevel` in the React key (`key={cluster.id}-z${zoomLevel}`) forces the native overlay to be destroyed and recreated on each zoom level change, preventing this rendering bug.
+- **Dual region tracking for reliable zoom state.** `onRegionChangeComplete` is the primary region tracker, but it can be unreliable on iOS (may not fire after certain gestures). `onRegionChange` serves as a fallback, throttled to only update state when the integer zoom level changes. This keeps `showIndividualMarkers` and Circle keys accurate.
+- **Cluster IDs are deterministic.** Each cluster gets an `id` derived from its member upload IDs using FNV-1a hashing. This ensures stable identity across re-renders when the underlying data hasn't changed.
+- **`useFocusEffect` does NOT depend on GPS position.** GPS polling (60s) updates the blue dot on the map but does not trigger data refreshes.
+- **`refreshUploads` callback is stable across auth state changes.** It reads `userIdRef.current` (a ref) instead of depending on `userId` state. This prevents auth initialization (`undefined` → `deviceId` → `appleUserId`) from triggering `useFocusEffect`.
+- **Failed AWS fetches return stale cache, not empty arrays.** `UploadDataProvider.getAll()` only caches successful fetches. On failure, it returns the previous cached data as a fallback.
+- **Media URL failures fall back to `mediaKey`.** If `getDisplayUrl()` throws or returns empty, the raw S3 key is used instead of filtering out the upload.

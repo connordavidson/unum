@@ -62,7 +62,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
     handleSearchBase();
   }, [handleSearchBase, trackSearch]);
 
-  const { uploads, userVotes, handleVote, refreshUploads } = useUploadData();
+  const { uploads, userVotes, handleVote, refreshUploads, invalidateCache } = useUploadData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [profileDrawerVisible, setProfileDrawerVisible] = useState(false);
   const [reportUploadId, setReportUploadId] = useState<string | null>(null);
@@ -79,28 +79,19 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, [trackScreen]);
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
-  // Calculate bounding box from position to fetch AWS data
+  // No bbox here — handleMapRegionChange handles region-filtered fetches.
+  // Passing a GPS-centered bbox with DEFAULT_DELTA would mismatch the actual
+  // map region (adjusted for aspect ratio), causing items to disappear.
   useFocusEffect(
     useCallback(() => {
-      const center = position || MAP_CONFIG.DEFAULT_CENTER;
-      // Handle both tuple [lat, lon] and object {latitude, longitude} formats
-      const lat = Array.isArray(center) ? center[0] : center.latitude;
-      const lon = Array.isArray(center) ? center[1] : center.longitude;
-
-      const boundingBox = {
-        minLat: lat - MAP_CONFIG.DEFAULT_DELTA.latitudeDelta / 2,
-        maxLat: lat + MAP_CONFIG.DEFAULT_DELTA.latitudeDelta / 2,
-        minLon: lon - MAP_CONFIG.DEFAULT_DELTA.longitudeDelta / 2,
-        maxLon: lon + MAP_CONFIG.DEFAULT_DELTA.longitudeDelta / 2,
-      };
-
-      console.log('[MapScreen] Focus effect - refreshing with bounding box:', boundingBox);
-      refreshUploads(boundingBox);
-    }, [refreshUploads, position])
+      console.log('[MapScreen] Focus effect - refreshing uploads');
+      refreshUploads();
+    }, [refreshUploads])
   );
   const { createDownloadHandler } = useDownload();
   const {
     region,
+    zoomLevel,
     clusters,
     visibleUploads,
     showIndividualMarkers,
@@ -108,21 +99,25 @@ export function MapScreen({ navigation }: MapScreenProps) {
     handleRegionChange,
   } = useMapState(uploads, position);
 
-  // Handle map region change - update clustering AND fetch new data
+  // Handle map region change - update display filters only.
+  // Data is already complete from getAll(); no need to re-fetch on zoom/pan.
   const handleMapRegionChange = useCallback((newRegion: typeof region) => {
-    // Update clustering state
     handleRegionChange(newRegion);
+  }, [handleRegionChange]);
 
-    // Fetch data for new region
-    const boundingBox = {
-      minLat: newRegion.latitude - newRegion.latitudeDelta / 2,
-      maxLat: newRegion.latitude + newRegion.latitudeDelta / 2,
-      minLon: newRegion.longitude - newRegion.longitudeDelta / 2,
-      maxLon: newRegion.longitude + newRegion.longitudeDelta / 2,
-    };
-    console.log('[MapScreen] Region changed - refreshing with bounding box:', boundingBox);
-    refreshUploads(boundingBox);
-  }, [handleRegionChange, refreshUploads]);
+  // Fallback region tracker during gestures.
+  // onRegionChangeComplete can be unreliable on iOS — it sometimes doesn't
+  // fire after zoom gestures, leaving showIndividualMarkers stale.
+  // This fires during animation but only updates state when the integer
+  // zoom level changes, limiting re-renders to ~5-10 per gesture.
+  const lastZoomRef = useRef(Math.round(Math.log2(360 / MAP_CONFIG.DEFAULT_DELTA.latitudeDelta)));
+  const handleRegionChanging = useCallback((newRegion: typeof region) => {
+    const newZoom = Math.round(Math.log2(360 / newRegion.latitudeDelta));
+    if (newZoom !== lastZoomRef.current) {
+      lastZoomRef.current = newZoom;
+      handleRegionChange(newRegion);
+    }
+  }, [handleRegionChange]);
 
   // Handle pull-to-refresh in feed
   const handleRefresh = useCallback(async () => {
@@ -130,22 +125,13 @@ export function MapScreen({ navigation }: MapScreenProps) {
     track('feed_refresh');
     setIsRefreshing(true);
     try {
-      // Calculate bounding box from current region
-      const boundingBox = {
-        minLat: region.latitude - region.latitudeDelta / 2,
-        maxLat: region.latitude + region.latitudeDelta / 2,
-        minLon: region.longitude - region.longitudeDelta / 2,
-        maxLon: region.longitude + region.longitudeDelta / 2,
-      };
-      console.log('[MapScreen] Refreshing with bounding box:', boundingBox);
-      await refreshUploads(boundingBox);
-      // Re-trigger region change to update clusters and visible uploads
-      handleRegionChange(region);
+      invalidateCache();
+      await refreshUploads();
     } finally {
       setIsRefreshing(false);
       console.log('[MapScreen] Refresh complete');
     }
-  }, [refreshUploads, handleRegionChange, region, track]);
+  }, [refreshUploads, invalidateCache, track]);
 
   // Create a map of upload IDs to uploads for quick lookup
   const uploadsById = useMemo(() => {
@@ -253,8 +239,9 @@ export function MapScreen({ navigation }: MapScreenProps) {
     if (!upload?.userId) return;
     await getBlockService().blockUser(auth.user.id, upload.userId);
     Alert.alert('User Blocked', 'You will no longer see posts from this user.');
+    invalidateCache();
     refreshUploads();
-  }, [reportUploadId, auth.user?.id, uploads, refreshUploads]);
+  }, [reportUploadId, auth.user?.id, uploads, refreshUploads, invalidateCache]);
 
   // Show loading state while getting location (but still render buttons)
   const isLoading = locationLoading || !position;
@@ -274,6 +261,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
           ...position,
           ...MAP_CONFIG.DEFAULT_DELTA,
         }}
+        onRegionChange={handleRegionChanging}
         onRegionChangeComplete={handleMapRegionChange}
         showsUserLocation
         showsMyLocationButton
@@ -302,24 +290,28 @@ export function MapScreen({ navigation }: MapScreenProps) {
             );
           })}
 
-        {/* Large cluster circles */}
-        {clusters.largeClusters.map((cluster, index) => (
+        {/* Large cluster circles — always rendered.
+            zoomLevel in key forces native MKCircle overlay re-creation on
+            zoom changes, preventing iOS rendering bugs where overlays get
+            stuck invisible after zoom animations. */}
+        {clusters.largeClusters.map((cluster) => (
           <Circle
-            key={`large-${index}`}
+            key={`${cluster.id}-z${zoomLevel}`}
             center={toLatLng(cluster.center)}
             radius={cluster.radius}
             fillColor="rgba(244, 67, 54, 0.15)"
             strokeColor="rgba(244, 67, 54, 0.4)"
             strokeWidth={2}
+            zIndex={1}
           />
         ))}
 
         {/* Small cluster markers */}
         {!showIndividualMarkers &&
           showUnclusteredMarkers &&
-          clusters.smallClusters.map((cluster, index) => (
+          clusters.smallClusters.map((cluster) => (
             <Marker
-              key={`small-${index}`}
+              key={cluster.id}
               coordinate={toLatLng(cluster.center)}
               onPress={handleMarkerPress}
             >
