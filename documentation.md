@@ -18,6 +18,7 @@
 14. [Account Deletion](#14-account-deletion-apple-guideline-511v)
 15. [Legal Pages](#15-legal-pages)
 16. [App Store Submission Configuration](#16-app-store-submission-configuration)
+17. [Geospatial Clustering](#17-geospatial-clustering)
 
 ---
 
@@ -1138,3 +1139,59 @@ Submit configuration requires:
 - **Privacy policy URL:** Must be publicly accessible (not just in-app)
 - **Privacy nutrition labels:** Must match `NSPrivacyCollectedDataTypes` in privacy manifest
 - **Review notes:** Document Apple Sign-In auth, Rekognition moderation, reporting/blocking, account deletion
+
+---
+
+## 17. Geospatial Clustering
+
+**File:** `src/shared/utils/clustering.ts`
+
+The clustering algorithm groups nearby map uploads into visual clusters (circles for large groups, numbered markers for small groups, individual pins for isolated uploads).
+
+### Algorithm Overview
+
+Uses grid-based spatial indexing with BFS (breadth-first search) expansion for transitive clustering:
+
+1. **Build spatial grid** — Divide the map into grid cells sized to `THRESHOLD_METERS` (2000m). Each upload is placed into its cell. O(n) to build.
+2. **BFS expansion** — For each unvisited upload, start a BFS queue. Find all unvisited neighbors within 2000m (checking only adjacent grid cells for efficiency). Enqueue each neighbor and continue until the queue is empty. All transitively connected uploads form one cluster.
+3. **Categorize** — Clusters with >= `MIN_FOR_CIRCLE` (4) uploads become large clusters (rendered as red circles). Clusters with 2-3 uploads become small clusters (numbered markers). Single uploads remain unclustered (individual pins).
+4. **Post-merge overlapping circles** — After clustering, large clusters whose rendered circles overlap are merged using union-find with path compression. This handles the edge case where two clusters have no 2000m path between them but their visual circles still overlap on the map.
+
+### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `clusterUploads(uploads)` | Main entry point. Returns `{ largeClusters, smallClusters, unclustered }` |
+| `getDistanceMeters(coord1, coord2)` | Haversine distance between two coordinates in meters |
+| `calculateCenter(uploads)` | Arithmetic mean of upload coordinates |
+| `calculateRadius(uploads, center)` | Max distance from center to any upload + padding |
+| `mergeOverlappingClusters(clusters)` | Union-find merge of clusters with overlapping circles |
+| `buildSpatialIndex(uploads, cellSize)` | Grid-based spatial index for O(1) neighbor cell lookup |
+| `findNearbyUploads(upload, grid, ...)` | Finds unvisited uploads within threshold in adjacent grid cells |
+
+### Configuration
+
+Constants in `src/shared/constants/index.ts` under `CLUSTER_CONFIG`:
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `THRESHOLD_METERS` | 2000 | Max distance between neighbors for BFS expansion |
+| `MIN_FOR_CIRCLE` | 4 | Minimum uploads to render as a circle |
+| `RADIUS_PADDING` | 200 | Extra meters added to cluster circle radius |
+
+### Performance
+
+- Spatial grid build: O(n)
+- BFS expansion: O(n) total across all clusters (each upload visited once)
+- Neighbor lookup: O(k) per upload where k = uploads in adjacent cells (typically small)
+- Overlap merge: O(m^2) where m = number of large clusters (typically < 20)
+
+### Visual Rendering
+
+The clustering results are consumed by `useMapState` hook which passes them to `MapScreen`:
+
+| Result Type | Map Rendering |
+|-------------|---------------|
+| `largeClusters` | Red semi-transparent circle with upload count label |
+| `smallClusters` | Numbered marker at cluster center |
+| `unclustered` | Individual pin markers |

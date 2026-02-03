@@ -144,8 +144,71 @@ function findNearbyUploads(
 }
 
 /**
+ * Merge large clusters whose rendered circles overlap.
+ * Uses union-find to group overlapping clusters, then recalculates center/radius.
+ */
+function mergeOverlappingClusters(clusters: Cluster[]): Cluster[] {
+  if (clusters.length <= 1) return clusters;
+
+  const parent = clusters.map((_, i) => i);
+
+  function find(i: number): number {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]]; // path compression
+      i = parent[i];
+    }
+    return i;
+  }
+
+  function union(i: number, j: number): void {
+    const ri = find(i);
+    const rj = find(j);
+    if (ri !== rj) parent[ri] = rj;
+  }
+
+  // Check all pairs for circle overlap
+  for (let i = 0; i < clusters.length; i++) {
+    for (let j = i + 1; j < clusters.length; j++) {
+      const dist = getDistanceMeters(clusters[i].center, clusters[j].center);
+      if (dist < clusters[i].radius + clusters[j].radius) {
+        union(i, j);
+      }
+    }
+  }
+
+  // Group clusters by their root
+  const groups = new Map<number, Cluster[]>();
+  for (let i = 0; i < clusters.length; i++) {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root)!.push(clusters[i]);
+  }
+
+  // Merge each group into a single cluster
+  const merged: Cluster[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]);
+    } else {
+      const allUploads = group.flatMap((c) => c.uploads);
+      const center = calculateCenter(allUploads);
+      const radius = calculateRadius(allUploads, center);
+      merged.push({
+        center,
+        count: allUploads.length,
+        radius,
+        uploads: allUploads,
+      });
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Group uploads into clusters based on proximity
- * Uses grid-based spatial indexing for O(n) average case instead of O(n²)
+ * Uses grid-based spatial indexing with BFS expansion for transitive clustering.
+ * Uploads connected by chains of neighbors within THRESHOLD_METERS merge into one cluster.
  */
 export function clusterUploads(uploads: Upload[]): ClusterResult {
   if (uploads.length === 0) {
@@ -167,47 +230,59 @@ export function clusterUploads(uploads: Upload[]): ClusterResult {
   for (const upload of uploads) {
     if (visited.has(upload.id)) continue;
 
-    // Find all uploads within threshold distance using spatial index
-    const nearby = findNearbyUploads(
-      upload,
-      grid,
-      cellSize,
-      visited,
-      CLUSTER_CONFIG.THRESHOLD_METERS
-    );
+    // BFS expansion: find all transitively connected uploads
+    const clusterMembers: Upload[] = [];
+    const queue: Upload[] = [upload];
+    visited.add(upload.id);
 
-    if (nearby.length >= CLUSTER_CONFIG.MIN_FOR_CIRCLE) {
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      clusterMembers.push(current);
+
+      const neighbors = findNearbyUploads(
+        current,
+        grid,
+        cellSize,
+        visited,
+        CLUSTER_CONFIG.THRESHOLD_METERS
+      );
+
+      for (const neighbor of neighbors) {
+        visited.add(neighbor.id);
+        queue.push(neighbor);
+      }
+    }
+
+    if (clusterMembers.length >= CLUSTER_CONFIG.MIN_FOR_CIRCLE) {
       // Large cluster - show as circle
-      const center = calculateCenter(nearby);
-      const radius = calculateRadius(nearby, center);
+      const center = calculateCenter(clusterMembers);
+      const radius = calculateRadius(clusterMembers, center);
 
       largeClusters.push({
         center,
-        count: nearby.length,
+        count: clusterMembers.length,
         radius,
-        uploads: nearby,
+        uploads: clusterMembers,
       });
-
-      nearby.forEach((u) => visited.add(u.id));
-    } else if (nearby.length > 1) {
+    } else if (clusterMembers.length > 1) {
       // Small cluster - show as numbered marker
-      const center = calculateCenter(nearby);
-      const radius = calculateRadius(nearby, center);
+      const center = calculateCenter(clusterMembers);
+      const radius = calculateRadius(clusterMembers, center);
 
       smallClusters.push({
         center,
-        count: nearby.length,
+        count: clusterMembers.length,
         radius,
-        uploads: nearby,
+        uploads: clusterMembers,
       });
-
-      nearby.forEach((u) => visited.add(u.id));
     } else {
       // Single upload - unclustered
       unclustered.push(upload);
-      visited.add(upload.id);
     }
   }
 
-  return { largeClusters, smallClusters, unclustered };
+  // Post-merge: combine large clusters whose circles overlap
+  const mergedLarge = mergeOverlappingClusters(largeClusters);
+
+  return { largeClusters: mergedLarge, smallClusters, unclustered };
 }
