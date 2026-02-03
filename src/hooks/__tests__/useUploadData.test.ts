@@ -119,6 +119,59 @@ function deriveUserVotes(uploads: Upload[]): Record<string, VoteType> {
   return votes;
 }
 
+/**
+ * Simulates the request-versioned refresh logic from useUploadData.
+ * Mirrors the actual refreshUploads implementation:
+ * - Increments a version counter per call
+ * - Only applies the result if the version is still the latest
+ * - Uses ref-based userId (no fallback to state)
+ * - On error, preserves previous uploads (does not set to [])
+ */
+function createRefreshSimulator() {
+  let requestVersion = 0;
+  let uploads: Upload[] = [];
+  let loading = false;
+  let error: string | null = null;
+
+  return {
+    get state() {
+      return { uploads, loading, error, requestVersion };
+    },
+    async refresh(
+      bbox: BoundingBox | undefined,
+      userIdRef: { current: string | null }
+    ) {
+      const currentVersion = ++requestVersion;
+      const currentUserId = userIdRef.current;
+
+      if (currentVersion === requestVersion) {
+        loading = true;
+      }
+
+      try {
+        const data = bbox
+          ? await mockGetInBounds(bbox, currentUserId || undefined)
+          : await mockGetAll(currentUserId || undefined);
+
+        // Only apply if still the latest request
+        if (currentVersion === requestVersion) {
+          uploads = data;
+          error = null;
+        }
+      } catch (err) {
+        if (currentVersion === requestVersion) {
+          error = 'Failed to load uploads';
+          // Do NOT clear uploads — keep previous data
+        }
+      } finally {
+        if (currentVersion === requestVersion) {
+          loading = false;
+        }
+      }
+    },
+  };
+}
+
 describe('useUploadData logic', () => {
   const mockUploads: Upload[] = [
     {
@@ -378,6 +431,287 @@ describe('useUploadData logic', () => {
           'device-456'
         )
       ).rejects.toThrow('Database error');
+    });
+  });
+
+  describe('request versioning', () => {
+    it('should only apply the latest request result when multiple calls overlap', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call resolves slowly with stale data
+      let resolveFirst!: (value: Upload[]) => void;
+      const firstPromise = new Promise<Upload[]>((resolve) => {
+        resolveFirst = resolve;
+      });
+      mockGetAll.mockReturnValueOnce(firstPromise);
+
+      // Second call resolves immediately with fresh data
+      const freshUploads: Upload[] = [
+        {
+          id: 'fresh-1',
+          type: 'photo',
+          data: 'https://example.com/fresh.jpg',
+          coordinates: [37.78, -122.42],
+          timestamp: '2024-01-03T00:00:00.000Z',
+          votes: 20,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(freshUploads);
+
+      // Fire both requests (simulating rapid calls)
+      const first = sim.refresh(undefined, userIdRef);
+      const second = sim.refresh(undefined, userIdRef);
+
+      // Second completes first (fast response)
+      await second;
+      expect(sim.state.uploads).toEqual(freshUploads);
+
+      // Now first completes (slow response) — should be ignored
+      resolveFirst([
+        {
+          id: 'stale-1',
+          type: 'photo',
+          data: 'https://example.com/stale.jpg',
+          coordinates: [37.77, -122.41],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 1,
+          userVote: null,
+        },
+      ]);
+      await first;
+
+      // State should still have fresh data, not stale
+      expect(sim.state.uploads).toEqual(freshUploads);
+      expect(sim.state.uploads[0].id).toBe('fresh-1');
+    });
+
+    it('should ignore stale error when a newer request succeeded', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call will reject slowly
+      let rejectFirst!: (err: Error) => void;
+      const firstPromise = new Promise<Upload[]>((_, reject) => {
+        rejectFirst = reject;
+      });
+      mockGetAll.mockReturnValueOnce(firstPromise);
+
+      // Second call succeeds immediately
+      const freshUploads: Upload[] = [
+        {
+          id: 'fresh-1',
+          type: 'photo',
+          data: 'https://example.com/fresh.jpg',
+          coordinates: [37.78, -122.42],
+          timestamp: '2024-01-03T00:00:00.000Z',
+          votes: 20,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(freshUploads);
+
+      const first = sim.refresh(undefined, userIdRef);
+      const second = sim.refresh(undefined, userIdRef);
+
+      await second;
+      expect(sim.state.error).toBeNull();
+      expect(sim.state.uploads).toEqual(freshUploads);
+
+      // Now first rejects — error should be ignored
+      rejectFirst(new Error('Network error'));
+      await first;
+
+      expect(sim.state.error).toBeNull();
+      expect(sim.state.uploads).toEqual(freshUploads);
+    });
+  });
+
+  describe('ref-based userId', () => {
+    it('should use userIdRef value (not a separate state fallback)', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'ref-user-456' };
+
+      mockGetAll.mockResolvedValue([]);
+
+      await sim.refresh(undefined, userIdRef);
+
+      expect(mockGetAll).toHaveBeenCalledWith('ref-user-456');
+    });
+
+    it('should pass undefined when userIdRef.current is null', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: null };
+
+      mockGetAll.mockResolvedValue([]);
+
+      await sim.refresh(undefined, userIdRef);
+
+      expect(mockGetAll).toHaveBeenCalledWith(undefined);
+    });
+
+    it('should pick up updated ref value on subsequent calls', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'device-id-anon' };
+
+      mockGetAll.mockResolvedValue([]);
+
+      // First call with anonymous device ID
+      await sim.refresh(undefined, userIdRef);
+      expect(mockGetAll).toHaveBeenCalledWith('device-id-anon');
+
+      // Auth completes, ref updated (simulates useEffect in useUserIdentity)
+      userIdRef.current = 'apple-user-789';
+
+      // Second call picks up the new value without needing callback recreation
+      await sim.refresh(undefined, userIdRef);
+      expect(mockGetAll).toHaveBeenCalledWith('apple-user-789');
+    });
+  });
+
+  describe('error resilience', () => {
+    it('should preserve previous uploads when refresh fails', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call succeeds
+      const goodUploads: Upload[] = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          data: 'https://example.com/photo1.jpg',
+          coordinates: [37.7749, -122.4194],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 5,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(goodUploads);
+      await sim.refresh(undefined, userIdRef);
+      expect(sim.state.uploads).toEqual(goodUploads);
+
+      // Second call fails
+      mockGetAll.mockRejectedValueOnce(new Error('Network error'));
+      await sim.refresh(undefined, userIdRef);
+
+      // Uploads should still be the good data, not empty
+      expect(sim.state.uploads).toEqual(goodUploads);
+      expect(sim.state.error).toBe('Failed to load uploads');
+    });
+
+    it('should clear error on successful refresh after failure', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      // First call fails
+      mockGetAll.mockRejectedValueOnce(new Error('Network error'));
+      await sim.refresh(undefined, userIdRef);
+      expect(sim.state.error).toBe('Failed to load uploads');
+
+      // Second call succeeds
+      const goodUploads: Upload[] = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          data: 'https://example.com/photo1.jpg',
+          coordinates: [37.7749, -122.4194],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 5,
+          userVote: null,
+        },
+      ];
+      mockGetAll.mockResolvedValueOnce(goodUploads);
+      await sim.refresh(undefined, userIdRef);
+
+      expect(sim.state.error).toBeNull();
+      expect(sim.state.uploads).toEqual(goodUploads);
+    });
+
+    it('should set loading false after error', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      mockGetAll.mockRejectedValueOnce(new Error('Network error'));
+      await sim.refresh(undefined, userIdRef);
+
+      expect(sim.state.loading).toBe(false);
+    });
+  });
+
+  describe('no-bbox refresh (focus effect behavior)', () => {
+    it('should call getAll when no bbox is provided', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      mockGetAll.mockResolvedValue([]);
+
+      await sim.refresh(undefined, userIdRef);
+
+      expect(mockGetAll).toHaveBeenCalledWith('user-123');
+      expect(mockGetInBounds).not.toHaveBeenCalled();
+    });
+
+    it('should call getInBounds when bbox is provided', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      const bbox: BoundingBox = {
+        minLat: 37.7,
+        maxLat: 37.8,
+        minLon: -122.5,
+        maxLon: -122.4,
+      };
+
+      mockGetInBounds.mockResolvedValue([]);
+
+      await sim.refresh(bbox, userIdRef);
+
+      expect(mockGetInBounds).toHaveBeenCalledWith(bbox, 'user-123');
+      expect(mockGetAll).not.toHaveBeenCalled();
+    });
+
+    it('should not lose data when switching from bbox to no-bbox refresh', async () => {
+      const sim = createRefreshSimulator();
+      const userIdRef = { current: 'user-123' };
+
+      const allUploads: Upload[] = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          data: 'https://example.com/photo1.jpg',
+          coordinates: [37.7749, -122.4194],
+          timestamp: '2024-01-01T00:00:00.000Z',
+          votes: 5,
+          userVote: null,
+        },
+        {
+          id: 'upload-2',
+          type: 'photo',
+          data: 'https://example.com/photo2.jpg',
+          coordinates: [37.78, -122.42],
+          timestamp: '2024-01-02T00:00:00.000Z',
+          votes: 10,
+          userVote: null,
+        },
+      ];
+
+      // Bbox refresh returns subset
+      const bbox: BoundingBox = {
+        minLat: 37.77,
+        maxLat: 37.78,
+        minLon: -122.43,
+        maxLon: -122.41,
+      };
+      mockGetInBounds.mockResolvedValueOnce([allUploads[0]]);
+      await sim.refresh(bbox, userIdRef);
+      expect(sim.state.uploads.length).toBe(1);
+
+      // No-bbox refresh (like focus effect) returns full set
+      mockGetAll.mockResolvedValueOnce(allUploads);
+      await sim.refresh(undefined, userIdRef);
+      expect(sim.state.uploads.length).toBe(2);
+      expect(sim.state.uploads).toEqual(allUploads);
     });
   });
 });

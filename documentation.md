@@ -19,6 +19,7 @@
 15. [Legal Pages](#15-legal-pages)
 16. [App Store Submission Configuration](#16-app-store-submission-configuration)
 17. [Geospatial Clustering](#17-geospatial-clustering)
+18. [Feed Data Refresh Architecture](#18-feed-data-refresh-architecture)
 
 ---
 
@@ -1195,3 +1196,31 @@ The clustering results are consumed by `useMapState` hook which passes them to `
 | `largeClusters` | Red semi-transparent circle with upload count label |
 | `smallClusters` | Numbered marker at cluster center |
 | `unclustered` | Individual pin markers |
+
+## 18. Feed Data Refresh Architecture
+
+### Data Flow
+
+Upload data flows through a layered pipeline:
+
+1. **`UploadDataProvider`** (`src/providers/UploadDataProvider.ts`) — Singleton that fetches from DynamoDB, resolves media URLs, applies ranking, and caches results (60s TTL). `getAll()` returns all uploads; `getInBounds(bbox)` calls `getAll()` then filters client-side.
+2. **`useUploadData`** (`src/hooks/useUploadData.ts`) — React hook wrapping the provider. Exposes `refreshUploads(bbox?)` which sets `uploads` state. Uses request versioning to prevent stale responses from overwriting fresh data.
+3. **`useMapState`** (`src/hooks/useMapState.ts`) — Derives `visibleUploads` by filtering `uploads` to those within the current map `region`. Also handles clustering.
+4. **`MapScreen`** (`src/screens/MapScreen.tsx`) — Passes `visibleUploads` to `FeedPanel`.
+
+### When Data Refreshes
+
+| Trigger | Mechanism | Bounding Box |
+|---------|-----------|--------------|
+| Screen gains focus | `useFocusEffect` | None (fetches all, `visibleUploads` filters) |
+| Map pan/zoom | `onRegionChangeComplete` → `handleMapRegionChange` | Map's visible region |
+| Pull-to-refresh | `handleRefresh` | Map's visible region |
+| After blocking a user | `handleBlockUser` | Map's visible region |
+| After creating an upload | `provider.invalidate()` (cache expires, next call re-fetches) | Depends on trigger |
+
+### Key Design Decisions
+
+- **`useFocusEffect` does NOT depend on GPS position.** GPS polling (60s) updates the blue dot on the map but does not trigger data refreshes. This prevents periodic cache-busting that would overwrite region-filtered data with a mismatched GPS-centered bounding box.
+- **`refreshUploads` callback is stable across auth state changes.** It reads `userIdRef.current` (a ref) instead of depending on `userId` state. This prevents auth initialization (`undefined` → `deviceId` → `appleUserId`) from triggering `useFocusEffect`.
+- **Failed AWS fetches return stale cache, not empty arrays.** `UploadDataProvider.getAll()` only caches successful fetches. On failure, it returns the previous cached data as a fallback.
+- **Media URL failures fall back to `mediaKey`.** If `getDisplayUrl()` throws or returns empty, the raw S3 key is used instead of filtering out the upload.

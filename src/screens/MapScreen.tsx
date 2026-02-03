@@ -79,24 +79,14 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, [trackScreen]);
 
   // Refresh uploads when screen comes into focus (e.g., after posting)
-  // Calculate bounding box from position to fetch AWS data
+  // No bbox here — handleMapRegionChange handles region-filtered fetches.
+  // Passing a GPS-centered bbox with DEFAULT_DELTA would mismatch the actual
+  // map region (adjusted for aspect ratio), causing items to disappear.
   useFocusEffect(
     useCallback(() => {
-      const center = position || MAP_CONFIG.DEFAULT_CENTER;
-      // Handle both tuple [lat, lon] and object {latitude, longitude} formats
-      const lat = Array.isArray(center) ? center[0] : center.latitude;
-      const lon = Array.isArray(center) ? center[1] : center.longitude;
-
-      const boundingBox = {
-        minLat: lat - MAP_CONFIG.DEFAULT_DELTA.latitudeDelta / 2,
-        maxLat: lat + MAP_CONFIG.DEFAULT_DELTA.latitudeDelta / 2,
-        minLon: lon - MAP_CONFIG.DEFAULT_DELTA.longitudeDelta / 2,
-        maxLon: lon + MAP_CONFIG.DEFAULT_DELTA.longitudeDelta / 2,
-      };
-
-      console.log('[MapScreen] Focus effect - refreshing with bounding box:', boundingBox);
-      refreshUploads(boundingBox);
-    }, [refreshUploads, position])
+      console.log('[MapScreen] Focus effect - refreshing uploads');
+      refreshUploads();
+    }, [refreshUploads])
   );
   const { createDownloadHandler } = useDownload();
   const {
@@ -253,8 +243,14 @@ export function MapScreen({ navigation }: MapScreenProps) {
     if (!upload?.userId) return;
     await getBlockService().blockUser(auth.user.id, upload.userId);
     Alert.alert('User Blocked', 'You will no longer see posts from this user.');
-    refreshUploads();
-  }, [reportUploadId, auth.user?.id, uploads, refreshUploads]);
+    const boundingBox = {
+      minLat: region.latitude - region.latitudeDelta / 2,
+      maxLat: region.latitude + region.latitudeDelta / 2,
+      minLon: region.longitude - region.longitudeDelta / 2,
+      maxLon: region.longitude + region.longitudeDelta / 2,
+    };
+    refreshUploads(boundingBox);
+  }, [reportUploadId, auth.user?.id, uploads, refreshUploads, region]);
 
   // Show loading state while getting location (but still render buttons)
   const isLoading = locationLoading || !position;

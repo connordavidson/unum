@@ -59,9 +59,13 @@ export function useUploadData(): UseUploadDataResult {
   // Uses request versioning to ensure only the latest request wins
   const refreshUploads = useCallback(async (bbox?: BoundingBox) => {
     const currentVersion = ++requestVersionRef.current;
-    const currentUserId = userIdRef.current || userId;
+    const currentUserId = userIdRef.current;
 
     if (__DEV__) console.log('[useUploadData] refreshUploads called', { version: currentVersion, hasBbox: !!bbox });
+
+    if (currentVersion === requestVersionRef.current) {
+      setLoading(true);
+    }
 
     try {
       const data = bbox
@@ -81,9 +85,14 @@ export function useUploadData(): UseUploadDataResult {
       if (currentVersion === requestVersionRef.current) {
         if (__DEV__) console.error('[useUploadData] Refresh failed:', err);
         setError('Failed to load uploads');
+        // Do NOT call setUploads([]) — keep showing previous data
+      }
+    } finally {
+      if (currentVersion === requestVersionRef.current) {
+        setLoading(false);
       }
     }
-  }, [provider, userId, userIdRef]);
+  }, [provider, userIdRef]);
 
   // Create upload - uses existing services
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {

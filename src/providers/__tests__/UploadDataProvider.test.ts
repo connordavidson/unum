@@ -2,7 +2,7 @@
  * UploadDataProvider Tests
  */
 
-import { getUploadDataProvider } from '../UploadDataProvider';
+import { getUploadDataProvider, resetUploadDataProvider } from '../UploadDataProvider';
 import type { BoundingBox } from '../../shared/types';
 
 // Mock the feature flags and API config
@@ -74,9 +74,9 @@ describe('UploadDataProvider', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Get fresh instance by invalidating cache
+    // Reset singleton to get a fresh instance with no stale state
+    resetUploadDataProvider();
     provider = getUploadDataProvider();
-    provider.invalidate();
   });
 
   describe('getAll', () => {
@@ -243,7 +243,7 @@ describe('UploadDataProvider', () => {
       expect(result[1].id).toBe('older-low-votes');
     });
 
-    it('should filter out uploads with empty media URLs', async () => {
+    it('should use mediaKey as fallback when media URL is empty', async () => {
       const mockUploads = [
         {
           id: 'has-media',
@@ -255,9 +255,9 @@ describe('UploadDataProvider', () => {
           voteCount: 0,
         },
         {
-          id: 'no-media',
+          id: 'empty-url',
           type: 'photo',
-          mediaKey: 'uploads/no-media.jpg',
+          mediaKey: 'uploads/empty-url.jpg',
           latitude: 37.7850,
           longitude: -122.4094,
           timestamp: '2024-01-02T00:00:00.000Z',
@@ -273,8 +273,77 @@ describe('UploadDataProvider', () => {
 
       const result = await provider.getAll('user-123');
 
+      // Both uploads should be returned; second uses mediaKey as fallback
+      expect(result.length).toBe(2);
+      expect(result.find(u => u.id === 'has-media')?.data).toBe('https://presigned-url.com/photo.jpg');
+      expect(result.find(u => u.id === 'empty-url')?.data).toBe('uploads/empty-url.jpg');
+    });
+
+    it('should use mediaKey as fallback when getDisplayUrl throws', async () => {
+      const mockUploads = [
+        {
+          id: 'upload-1',
+          type: 'photo',
+          mediaKey: 'uploads/upload-1.jpg',
+          latitude: 37.7749,
+          longitude: -122.4194,
+          timestamp: '2024-01-01T00:00:00.000Z',
+          voteCount: 0,
+        },
+      ];
+
+      mockGetAllUploads.mockResolvedValue(mockUploads);
+      mockGetUserVotesMap.mockResolvedValue({});
+      mockGetDisplayUrl.mockRejectedValue(new Error('S3 error'));
+
+      const result = await provider.getAll('user-123');
+
       expect(result.length).toBe(1);
-      expect(result[0].id).toBe('has-media');
+      expect(result[0].data).toBe('uploads/upload-1.jpg');
+    });
+
+    it('should return stale cache when AWS fetch fails after a successful fetch', async () => {
+      // First: successful fetch
+      mockGetAllUploads.mockResolvedValue([{
+        id: 'upload-1', type: 'photo', mediaKey: 'uploads/upload-1.jpg',
+        latitude: 37.7749, longitude: -122.4194, timestamp: '2024-01-01T00:00:00.000Z', voteCount: 5,
+      }]);
+      mockGetUserVotesMap.mockResolvedValue({});
+      mockGetDisplayUrl.mockResolvedValue('https://presigned-url.com/photo.jpg');
+
+      const firstResult = await provider.getAll('user-123');
+      expect(firstResult.length).toBe(1);
+
+      // Invalidate cache to force re-fetch
+      provider.invalidate();
+
+      // Second: failed fetch
+      mockGetAllUploads.mockRejectedValue(new Error('Network error'));
+
+      const secondResult = await provider.getAll('user-123');
+      // Should return stale cache, not empty array
+      expect(secondResult.length).toBe(1);
+      expect(secondResult[0].id).toBe('upload-1');
+    });
+
+    it('should not cache failed fetch results', async () => {
+      // First: failed fetch (no prior cache)
+      mockGetAllUploads.mockRejectedValue(new Error('Network error'));
+      const firstResult = await provider.getAll('user-123');
+      expect(firstResult).toEqual([]);
+
+      // Second: successful fetch should NOT use cache (because failure wasn't cached)
+      mockGetAllUploads.mockResolvedValue([{
+        id: 'upload-1', type: 'photo', mediaKey: 'uploads/upload-1.jpg',
+        latitude: 37.7749, longitude: -122.4194, timestamp: '2024-01-01T00:00:00.000Z', voteCount: 5,
+      }]);
+      mockGetUserVotesMap.mockResolvedValue({});
+      mockGetDisplayUrl.mockResolvedValue('https://presigned-url.com/photo.jpg');
+
+      const secondResult = await provider.getAll('user-123');
+      expect(secondResult.length).toBe(1);
+      // Verify it actually called AWS again (not using cache)
+      expect(mockGetAllUploads).toHaveBeenCalledTimes(2);
     });
   });
 
