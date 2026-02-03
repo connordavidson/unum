@@ -16,7 +16,7 @@ import { getMediaService } from '../services/media.service';
 import { getModerationService } from '../services/moderation.service';
 import { useUserIdentity } from './useUserIdentity';
 import { useVoting } from './useVoting';
-import type { Upload, CreateUploadData, VoteType, BoundingBox } from '../shared/types';
+import type { Upload, CreateUploadData, VoteType } from '../shared/types';
 
 interface UseUploadDataResult {
   uploads: Upload[];
@@ -25,7 +25,8 @@ interface UseUploadDataResult {
   error: string | null;
   createUpload: (data: CreateUploadData) => Promise<void>;
   handleVote: (uploadId: string, voteType: VoteType) => Promise<void>;
-  refreshUploads: (boundingBox?: BoundingBox) => Promise<void>;
+  refreshUploads: () => Promise<void>;
+  invalidateCache: () => void;
 }
 
 export function useUploadData(): UseUploadDataResult {
@@ -57,20 +58,21 @@ export function useUploadData(): UseUploadDataResult {
 
   // Refresh uploads - delegates entirely to provider
   // Uses request versioning to ensure only the latest request wins
-  const refreshUploads = useCallback(async (bbox?: BoundingBox) => {
+  // Always uses getAll() — display layer handles viewport filtering.
+  // When getAll() hits cache, it returns the same array reference,
+  // so setUploads is a React no-op (no re-render, no reclustering).
+  const refreshUploads = useCallback(async () => {
     const currentVersion = ++requestVersionRef.current;
     const currentUserId = userIdRef.current;
 
-    if (__DEV__) console.log('[useUploadData] refreshUploads called', { version: currentVersion, hasBbox: !!bbox });
+    if (__DEV__) console.log('[useUploadData] refreshUploads called', { version: currentVersion });
 
     if (currentVersion === requestVersionRef.current) {
       setLoading(true);
     }
 
     try {
-      const data = bbox
-        ? await provider.getInBounds(bbox, currentUserId || undefined)
-        : await provider.getAll(currentUserId || undefined);
+      const data = await provider.getAll(currentUserId || undefined);
 
       // Only apply if this is still the latest request
       if (currentVersion === requestVersionRef.current) {
@@ -93,6 +95,11 @@ export function useUploadData(): UseUploadDataResult {
       }
     }
   }, [provider, userIdRef]);
+
+  // Expose cache invalidation for pull-to-refresh and block actions
+  const invalidateCache = useCallback(() => {
+    provider.invalidate();
+  }, [provider]);
 
   // Create upload - uses existing services
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {
@@ -179,5 +186,6 @@ export function useUploadData(): UseUploadDataResult {
     createUpload,
     handleVote,
     refreshUploads,
+    invalidateCache,
   };
 }

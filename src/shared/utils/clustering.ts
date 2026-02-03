@@ -144,6 +144,21 @@ function findNearbyUploads(
 }
 
 /**
+ * Generate a deterministic cluster ID from sorted member upload IDs (FNV-1a hash).
+ * Same members in any order always produce the same ID.
+ */
+export function generateClusterId(uploads: Upload[]): string {
+  const sorted = uploads.map(u => u.id).sort();
+  let hash = 2166136261;
+  const joined = sorted.join(',');
+  for (let i = 0; i < joined.length; i++) {
+    hash ^= joined.charCodeAt(i);
+    hash = (hash * 16777619) >>> 0;
+  }
+  return `cluster-${hash.toString(36)}`;
+}
+
+/**
  * Merge large clusters whose rendered circles overlap.
  * Uses union-find to group overlapping clusters, then recalculates center/radius.
  */
@@ -194,6 +209,7 @@ function mergeOverlappingClusters(clusters: Cluster[]): Cluster[] {
       const center = calculateCenter(allUploads);
       const radius = calculateRadius(allUploads, center);
       merged.push({
+        id: generateClusterId(allUploads),
         center,
         count: allUploads.length,
         radius,
@@ -259,6 +275,7 @@ export function clusterUploads(uploads: Upload[]): ClusterResult {
       const radius = calculateRadius(clusterMembers, center);
 
       largeClusters.push({
+        id: generateClusterId(clusterMembers),
         center,
         count: clusterMembers.length,
         radius,
@@ -270,6 +287,7 @@ export function clusterUploads(uploads: Upload[]): ClusterResult {
       const radius = calculateRadius(clusterMembers, center);
 
       smallClusters.push({
+        id: generateClusterId(clusterMembers),
         center,
         count: clusterMembers.length,
         radius,
