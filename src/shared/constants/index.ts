@@ -44,6 +44,7 @@ export const CAMERA_CONFIG = {
   ZOOM_SCALE_PX: 400,
   MAX_VIDEO_DURATION: 60,
   PHOTO_QUALITY: 0.8,
+  LOCK_SLIDE_THRESHOLD_PX: 80,
 };
 
 // ============ Storage Keys ============

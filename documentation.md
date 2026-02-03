@@ -625,7 +625,7 @@ The three auth-related services form a chain:
 
 | Hook | File | Purpose |
 |------|------|---------|
-| `useCamera` | `hooks/useCamera.ts` | Camera permissions, capture photo/video, zoom |
+| `useCamera` | `hooks/useCamera.ts` | Camera permissions, capture photo/video, zoom, recording lock |
 | `useGestureCapture` | `hooks/useGestureCapture.ts` | Discriminates tap (photo) vs hold (video) |
 
 **Infrastructure:**
@@ -721,7 +721,11 @@ GestureHandlerRootView
 **CameraScreen** (`src/screens/CameraScreen.tsx`) - Modal:
 - Live camera view (front/back toggle)
 - Tap to capture photo, hold to record video
-- Slide while recording to zoom
+- Slide up while recording to zoom
+- Slide right while recording to lock (recording continues after lifting finger)
+- When locked, slide anywhere on screen to zoom, tap capture button to stop
+- Lock icon indicator shown to the right of capture button during recording
+- Video preview plays full video on loop (via `replaceAsync` + `play`)
 - Preview state: retake, download, add caption, post
 - Returns to map after posting
 

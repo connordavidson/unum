@@ -12,6 +12,7 @@ interface UseCameraResult {
   // Camera state
   facing: CameraType;
   isRecording: boolean;
+  isRecordingLocked: boolean;
   isCameraReady: boolean;
   zoom: number;
 
@@ -30,6 +31,8 @@ interface UseCameraResult {
   takePhoto: () => Promise<void>;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  lockRecording: () => void;
+  stopLockedRecording: () => Promise<void>;
   clearMedia: () => void;
   setZoom: (zoom: number) => void;
 
@@ -52,11 +55,15 @@ export function useCamera(): UseCameraResult {
     setZoomState(Math.max(0, Math.min(1, value)));
   }, []);
 
+  const [isRecordingLocked, setIsRecordingLocked] = useState(false);
+
   const cameraRef = useRef<CameraView>(null);
   const isRecordingRef = useRef(false);
+  const isRecordingLockedRef = useRef(false);
 
-  // Keep ref in sync with state for use in callbacks
+  // Keep refs in sync with state for use in callbacks
   isRecordingRef.current = isRecording;
+  isRecordingLockedRef.current = isRecordingLocked;
 
   const onCameraReady = useCallback(() => {
     setIsCameraReady(true);
@@ -109,6 +116,7 @@ export function useCamera(): UseCameraResult {
       Alert.alert('Recording Error', 'Failed to record video. Please try again.');
     } finally {
       setIsRecording(false);
+      setIsRecordingLocked(false);
     }
   }, [isRecording, isCameraReady]);
 
@@ -122,7 +130,26 @@ export function useCamera(): UseCameraResult {
     }
 
     setIsRecording(false);
+    setIsRecordingLocked(false);
   }, [isRecording]);
+
+  const lockRecording = useCallback(() => {
+    if (!isRecordingRef.current) return;
+    setIsRecordingLocked(true);
+  }, []);
+
+  const stopLockedRecording = useCallback(async () => {
+    if (!cameraRef.current || !isRecordingRef.current || !isRecordingLockedRef.current) return;
+
+    try {
+      await cameraRef.current.stopRecording();
+    } catch (err) {
+      console.error('Failed to stop locked recording:', err);
+    }
+
+    setIsRecording(false);
+    setIsRecordingLocked(false);
+  }, []);
 
   const clearMedia = useCallback(() => {
     setCapturedPhoto(null);
@@ -135,8 +162,9 @@ export function useCamera(): UseCameraResult {
     onTap: takePhoto,
     onHoldStart: startRecording,
     onHoldEnd: () => {
-      // Use ref to check if actually recording (avoids stale closure)
-      if (isRecordingRef.current) {
+      // Use refs to check state (avoids stale closures)
+      // If locked, don't stop — recording continues after finger lift
+      if (isRecordingRef.current && !isRecordingLockedRef.current) {
         stopRecording();
       }
     },
@@ -148,6 +176,7 @@ export function useCamera(): UseCameraResult {
     requestPermission,
     facing,
     isRecording,
+    isRecordingLocked,
     isCameraReady,
     zoom,
     capturedPhoto,
@@ -158,6 +187,8 @@ export function useCamera(): UseCameraResult {
     takePhoto,
     startRecording,
     stopRecording,
+    lockRecording,
+    stopLockedRecording,
     clearMedia,
     setZoom,
     handlePressIn,
