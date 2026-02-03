@@ -387,5 +387,101 @@ describe('clustering utilities', () => {
 
       expect(totalUploads).toBe(100);
     });
+
+    it('should merge chain-connected uploads into one cluster via BFS expansion', () => {
+      // 5 uploads spaced ~1500m apart in a line (latitude).
+      // At ~45° lat, 0.01348 degrees ≈ 1500m.
+      // Each adjacent pair is within 2000m, but first-to-last is ~6000m.
+      // Old single-hop algorithm would create multiple small clusters.
+      // BFS expansion should chain them into 1 large cluster.
+      const step = 0.01348; // ~1500m in latitude degrees
+      const baseLat = 45.0;
+      const lon = -93.0;
+
+      const uploads = [
+        mockUpload({ id: 'chain-a', coordinates: [baseLat, lon] }),
+        mockUpload({ id: 'chain-b', coordinates: [baseLat + step, lon] }),
+        mockUpload({ id: 'chain-c', coordinates: [baseLat + step * 2, lon] }),
+        mockUpload({ id: 'chain-d', coordinates: [baseLat + step * 3, lon] }),
+        mockUpload({ id: 'chain-e', coordinates: [baseLat + step * 4, lon] }),
+      ];
+
+      const result = clusterUploads(uploads);
+
+      // All 5 should be in a single large cluster (5 >= MIN_FOR_CIRCLE of 4)
+      expect(result.largeClusters).toHaveLength(1);
+      expect(result.largeClusters[0].count).toBe(5);
+      expect(result.smallClusters).toHaveLength(0);
+      expect(result.unclustered).toHaveLength(0);
+    });
+
+    it('should not chain uploads separated by more than threshold', () => {
+      // Two pairs of uploads, each pair close together, but pairs are far apart.
+      // Gap between pairs is 5000m (well beyond 2000m threshold).
+      const uploads = [
+        mockUpload({ id: 'pair1-a', coordinates: [45.0, -93.0] }),
+        mockUpload({ id: 'pair1-b', coordinates: [45.001, -93.0] }), // ~111m away
+        mockUpload({ id: 'pair2-a', coordinates: [45.045, -93.0] }), // ~5009m from pair1
+        mockUpload({ id: 'pair2-b', coordinates: [45.046, -93.0] }), // ~111m from pair2-a
+      ];
+
+      const result = clusterUploads(uploads);
+
+      // Should be 2 separate small clusters, no large clusters
+      expect(result.largeClusters).toHaveLength(0);
+      expect(result.smallClusters).toHaveLength(2);
+      expect(result.unclustered).toHaveLength(0);
+    });
+
+    it('should handle a dense metro scenario with chain connections', () => {
+      // Simulates downtown Minneapolis: many uploads spread over ~4km
+      // with chain connections between nearby groups.
+      // Each adjacent upload is ~800m apart, well within 2000m threshold.
+      const step = 0.00719; // ~800m in latitude degrees
+      const baseLat = 44.97;
+      const lon = -93.27;
+
+      // 8 uploads in a line, each 800m apart, spanning ~5600m
+      const uploads = Array.from({ length: 8 }, (_, i) =>
+        mockUpload({
+          id: `metro-${i}`,
+          coordinates: [baseLat + step * i, lon],
+        })
+      );
+
+      const result = clusterUploads(uploads);
+
+      // BFS should chain all 8 into 1 large cluster
+      expect(result.largeClusters).toHaveLength(1);
+      expect(result.largeClusters[0].count).toBe(8);
+      expect(result.smallClusters).toHaveLength(0);
+      expect(result.unclustered).toHaveLength(0);
+    });
+
+    it('should preserve all uploads when BFS chaining creates large clusters', () => {
+      // Chain of 6 uploads. Verify no uploads are lost or duplicated.
+      const step = 0.01; // ~1113m
+      const uploads = Array.from({ length: 6 }, (_, i) =>
+        mockUpload({
+          id: `preserve-${i}`,
+          coordinates: [45.0 + step * i, -93.0],
+        })
+      );
+
+      const result = clusterUploads(uploads);
+
+      const allIds = [
+        ...result.largeClusters.flatMap((c) => c.uploads.map((u) => u.id)),
+        ...result.smallClusters.flatMap((c) => c.uploads.map((u) => u.id)),
+        ...result.unclustered.map((u) => u.id),
+      ];
+
+      // All 6 uploads accounted for, no duplicates
+      expect(allIds).toHaveLength(6);
+      expect(new Set(allIds).size).toBe(6);
+      for (let i = 0; i < 6; i++) {
+        expect(allIds).toContain(`preserve-${i}`);
+      }
+    });
   });
 });
