@@ -42,6 +42,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     permission,
     requestPermission,
     facing,
+    cameraMode,
     isRecording,
     isRecordingLocked,
     isCameraReady,
@@ -529,11 +530,11 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   return (
     <View style={styles.container}>
       <CameraView
-        key={facing}
+        key={`${facing}-${cameraMode}`}
         ref={cameraRef}
         style={styles.camera}
         facing={facing}
-        mode="video"
+        mode={cameraMode}
         zoom={zoom}
         onCameraReady={onCameraReady}
       />

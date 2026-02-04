@@ -81,7 +81,7 @@ class AnalyticsService {
     if (!this.isEnabled) return;
 
     try {
-      await analytics().logScreenView({
+      await analytics().logEvent('screen_view', {
         screen_name: screenName,
         screen_class: screenName,
       });

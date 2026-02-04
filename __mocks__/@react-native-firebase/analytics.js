@@ -4,7 +4,6 @@ const analytics = jest.fn(() => ({
   setUserId: jest.fn().mockResolvedValue(),
   setUserProperties: jest.fn().mockResolvedValue(),
   setAnalyticsCollectionEnabled: jest.fn().mockResolvedValue(),
-  logScreenView: jest.fn().mockResolvedValue(),
 }));
 
 module.exports = {

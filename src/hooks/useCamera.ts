@@ -4,6 +4,8 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { CAMERA_CONFIG } from '../shared/constants';
 import { useGestureCapture } from './useGestureCapture';
 
+type CameraMode = 'picture' | 'video';
+
 interface UseCameraResult {
   // Permissions
   permission: ReturnType<typeof useCameraPermissions>[0];
@@ -11,6 +13,7 @@ interface UseCameraResult {
 
   // Camera state
   facing: CameraType;
+  cameraMode: CameraMode;
   isRecording: boolean;
   isRecordingLocked: boolean;
   isCameraReady: boolean;
@@ -56,17 +59,27 @@ export function useCamera(): UseCameraResult {
   }, []);
 
   const [isRecordingLocked, setIsRecordingLocked] = useState(false);
+  const [cameraMode, setCameraMode] = useState<CameraMode>('picture');
 
   const cameraRef = useRef<CameraView>(null);
   const isRecordingRef = useRef(false);
   const isRecordingLockedRef = useRef(false);
+  const pendingRecordRef = useRef(false);
 
   // Keep refs in sync with state for use in callbacks
   isRecordingRef.current = isRecording;
   isRecordingLockedRef.current = isRecordingLocked;
 
+  // Ref to hold the actual recording function (avoids circular dependency with onCameraReady)
+  const doStartRecordingRef = useRef<() => Promise<void>>();
+
   const onCameraReady = useCallback(() => {
     setIsCameraReady(true);
+    // If we switched to video mode for a pending recording, start it now
+    if (pendingRecordRef.current) {
+      pendingRecordRef.current = false;
+      doStartRecordingRef.current?.();
+    }
   }, []);
 
   const requestPermission = useCallback(async () => {
@@ -76,8 +89,9 @@ export function useCamera(): UseCameraResult {
   const flipCamera = useCallback(() => {
     if (isRecording) return;
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
+    setCameraMode('picture');
     setIsCameraReady(false);
-    // onCameraReady will be called when the new CameraView mounts (via key={facing})
+    // onCameraReady will be called when the new CameraView mounts (via key={facing}-${cameraMode})
   }, [isRecording]);
 
   const takePhoto = useCallback(async () => {
@@ -98,8 +112,9 @@ export function useCamera(): UseCameraResult {
     }
   }, [isCameraReady]);
 
-  const startRecording = useCallback(async () => {
-    if (!cameraRef.current || isRecording || !isCameraReady) return;
+  // The actual recording logic, called directly or after mode switch
+  const doStartRecording = useCallback(async () => {
+    if (!cameraRef.current || isRecordingRef.current) return;
 
     setIsRecording(true);
 
@@ -117,8 +132,28 @@ export function useCamera(): UseCameraResult {
     } finally {
       setIsRecording(false);
       setIsRecordingLocked(false);
+      // Switch back to picture mode for next photo capture
+      setCameraMode('picture');
+      setIsCameraReady(false);
     }
-  }, [isRecording, isCameraReady]);
+  }, []);
+
+  // Keep ref in sync so onCameraReady can call it
+  doStartRecordingRef.current = doStartRecording;
+
+  const startRecording = useCallback(async () => {
+    if (isRecording || !isCameraReady) return;
+
+    if (cameraMode !== 'video') {
+      // Switch to video mode — camera will remount, onCameraReady will trigger doStartRecording
+      pendingRecordRef.current = true;
+      setCameraMode('video');
+      setIsCameraReady(false);
+      return;
+    }
+
+    await doStartRecording();
+  }, [isRecording, isCameraReady, cameraMode, doStartRecording]);
 
   const stopRecording = useCallback(async () => {
     if (!cameraRef.current || !isRecording) return;
@@ -155,6 +190,7 @@ export function useCamera(): UseCameraResult {
     setCapturedPhoto(null);
     setRecordedVideo(null);
     setZoomState(0);
+    pendingRecordRef.current = false;
   }, []);
 
   // Use gesture capture hook for tap/hold discrimination
@@ -175,6 +211,7 @@ export function useCamera(): UseCameraResult {
     permission,
     requestPermission,
     facing,
+    cameraMode,
     isRecording,
     isRecordingLocked,
     isCameraReady,
