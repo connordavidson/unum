@@ -156,6 +156,16 @@ class AWSCredentialsService {
       return this.credentials;
     }
 
+    // If authenticated but credentials expired, try refresh via auth backend
+    if (this.accessLevel === 'authenticated' && (!this.credentials || !this.isValid())) {
+      const refreshed = await this.refreshExpiredCredentials();
+      if (refreshed) {
+        return refreshed;
+      }
+      // Refresh failed — fall through to existing expired/guest handling
+      this.accessLevel = 'expired';
+    }
+
     // If not initialized, try to restore credentials from stored session
     if (this.accessLevel === 'not_initialized') {
       log.debug('Not initialized, trying to restore from auth backend...');
@@ -249,6 +259,17 @@ class AWSCredentialsService {
     // Return cached authenticated credentials if valid
     if (this.accessLevel === 'authenticated' && this.credentials && this.isValid()) {
       return this.credentials;
+    }
+
+    // If authenticated but credentials expired, try refresh via auth backend
+    if (this.accessLevel === 'authenticated' && (!this.credentials || !this.isValid())) {
+      const refreshed = await this.refreshExpiredCredentials();
+      if (refreshed) {
+        return refreshed;
+      }
+      // Refresh failed — user must re-authenticate
+      this.accessLevel = 'expired';
+      throw new AuthenticationRequiredError();
     }
 
     // If not initialized, try restoration (but only accept authenticated result)
@@ -551,6 +572,21 @@ class AWSCredentialsService {
     } catch (error) {
       log.error('Failed to logout from auth backend', error);
     }
+  }
+
+  /**
+   * Refresh expired authenticated credentials using the auth backend refresh token.
+   * Deduplicates concurrent calls so only one refresh is in-flight at a time.
+   */
+  private refreshExpiredCredentials = dedup(() => this.doRefreshExpiredCredentials());
+
+  private async doRefreshExpiredCredentials(): Promise<AWSCredentials | null> {
+    log.debug('Attempting to refresh expired authenticated credentials...');
+    const restored = await this.tryRestoreFromAuthBackend();
+    if (restored && this.credentials && this.isValid()) {
+      return this.credentials;
+    }
+    return null;
   }
 
   /**

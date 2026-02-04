@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import {
   isAppleSignInAvailable,
@@ -14,6 +15,7 @@ import {
   loadStoredAuth,
   getStoredUserId,
 } from '../services/auth.service';
+import { getAWSCredentialsService } from '../services/aws-credentials.service';
 import type { AuthUser } from '../shared/types/auth';
 
 // ============ Types ============
@@ -98,6 +100,27 @@ export function useAuth(): UseAuthResult {
       subscription.remove();
     };
   }, [appleSignInAvailable]);
+
+  // Proactively refresh AWS credentials when app comes to foreground
+  useEffect(() => {
+    if (!user) return;
+
+    const handleAppStateChange = async (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        const credService = getAWSCredentialsService();
+        if (credService.hasAuthenticatedCredentials && !credService.hasValidCredentials()) {
+          try {
+            await credService.getCredentials();
+          } catch {
+            // Non-fatal — on-demand refresh will handle it when user tries to post
+          }
+        }
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [user]);
 
   // Sign in with Apple
   const signInWithApple = useCallback(async (): Promise<boolean> => {

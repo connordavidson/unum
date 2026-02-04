@@ -406,11 +406,13 @@ The `aws-credentials.service` tracks credential state as a discriminated access 
 
 **Credential resolution strategy** (in `getCredentials()`):
 1. Return cached credentials if valid (not within 5-minute expiration buffer)
-2. Try auth backend refresh token (primary path, 30-day validity)
-3. Try legacy stored Cognito identity ID
+2. If `authenticated` but expired, refresh via auth backend refresh token (deduped)
+3. If `not_initialized`, attempt full restoration (auth backend → legacy Cognito → guest)
 4. Fall back to unauthenticated (guest) credentials
 
-**Write enforcement:** `getAuthenticatedCredentials()` throws `AuthenticationRequiredError` if only guest credentials are available. All DynamoDB write operations use `getWriteDocClient()` which calls this method.
+**Write enforcement:** `getAuthenticatedCredentials()` throws `AuthenticationRequiredError` if only guest credentials are available. All DynamoDB write operations use `getWriteDocClient()` which calls this method. If credentials are `authenticated` but expired, it first attempts to refresh via the auth backend before throwing.
+
+**Proactive foreground refresh:** `useAuth` listens for AppState `active` transitions. When the app comes to foreground, if the user has authenticated credentials that have expired, it proactively calls `getCredentials()` to refresh them in the background. This ensures credentials are ready before the user attempts a write operation.
 
 ### Storage Split
 
