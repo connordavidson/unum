@@ -369,70 +369,131 @@ If these aren't configured, users will get `REAUTH_REQUIRED` errors after ~15 mi
 
 ```bash
 # Get Lambda role ARN
-aws lambda get-function-configuration --function-name unum-backend-{env} --query "Role" --output text
-
+aws lambda get-function-configuration --function-name unum-backend-prod --query "Role" --output text
 # Example output: arn:aws:iam::123456789:role/service-role/unum-backend-prod-role-abc123
-```
 
-The Cognito authenticated role is typically named `unum-{env}-authenticated-role` or `Cognito_{poolname}Auth_Role`.
+# List roles to find Cognito authenticated role
+aws iam list-roles --query "Roles[?contains(RoleName, 'authenticated')].[RoleName, Arn]" --output table
+
+# Get a specific role ARN by name
+aws iam get-role --role-name unum-prod-authenticated-role --query "Role.Arn" --output text
+```
 
 #### Step 2: Update Cognito Authenticated Role Trust Policy
 
-1. **IAM** → **Roles** → find your Cognito authenticated role
-2. Click **Trust relationships** tab
-3. Click **Edit trust policy**
-4. Add this statement to the `Statement` array:
+**Console:** IAM → Roles → Cognito authenticated role → Trust relationships → Edit trust policy
 
-```json
-{
-  "Effect": "Allow",
-  "Principal": {
-    "AWS": "<Lambda role ARN from Step 1>"
-  },
-  "Action": "sts:AssumeRole"
-}
+**CLI:**
+```bash
+# First, get the current trust policy
+aws iam get-role --role-name unum-prod-authenticated-role --query "Role.AssumeRolePolicyDocument" > trust-policy.json
+
+# Edit trust-policy.json to add the Lambda principal to the Statement array:
+# {
+#   "Effect": "Allow",
+#   "Principal": {
+#     "AWS": "arn:aws:iam::123456789:role/service-role/unum-backend-prod-role-abc123"
+#   },
+#   "Action": "sts:AssumeRole"
+# }
+
+# Then update the role with the new trust policy
+aws iam update-assume-role-policy --role-name unum-prod-authenticated-role --policy-document file://trust-policy.json
 ```
 
 This allows the Lambda to assume the Cognito role and issue credentials on behalf of authenticated users.
 
 #### Step 3: Update Lambda Role Permissions Policy
 
-1. **IAM** → **Roles** → find your Lambda role (from Step 1)
-2. Click on the **permissions policy** (not trust policy)
-3. Click **Edit** → **JSON**
-4. Add these statements to the `Statement` array:
+**Console:** IAM → Roles → Lambda role → Permissions policy → Edit
 
-```json
-{
-  "Sid": "STSAssumeAuthenticatedRole",
-  "Effect": "Allow",
-  "Action": "sts:AssumeRole",
-  "Resource": "<Cognito authenticated role ARN>"
-},
-{
-  "Sid": "RekognitionAccess",
-  "Effect": "Allow",
-  "Action": "rekognition:DetectModerationLabels",
-  "Resource": "*"
-}
+**CLI:**
+```bash
+# Get the Lambda role name (extract from ARN)
+LAMBDA_ROLE_NAME=$(aws lambda get-function-configuration --function-name unum-backend-prod --query "Role" --output text | sed 's/.*\///')
+
+# List inline policies on the role
+aws iam list-role-policies --role-name $LAMBDA_ROLE_NAME
+
+# Get current inline policy (replace POLICY_NAME with actual name)
+aws iam get-role-policy --role-name $LAMBDA_ROLE_NAME --policy-name POLICY_NAME --query "PolicyDocument" > lambda-policy.json
+
+# Edit lambda-policy.json to add these statements:
+# {
+#   "Sid": "STSAssumeAuthenticatedRole",
+#   "Effect": "Allow",
+#   "Action": "sts:AssumeRole",
+#   "Resource": "arn:aws:iam::123456789:role/unum-prod-authenticated-role"
+# },
+# {
+#   "Sid": "RekognitionAccess",
+#   "Effect": "Allow",
+#   "Action": "rekognition:DetectModerationLabels",
+#   "Resource": "*"
+# }
+
+# Update the policy
+aws iam put-role-policy --role-name $LAMBDA_ROLE_NAME --policy-name POLICY_NAME --policy-document file://lambda-policy.json
 ```
 
 #### Step 4: Add Rekognition to Cognito Authenticated Role
 
-The Cognito authenticated role also needs Rekognition permission for content moderation:
+**Console:** IAM → Roles → Cognito authenticated role → Permissions policy → Edit
 
-1. **IAM** → **Roles** → find your Cognito authenticated role
-2. Click on the **permissions policy**
-3. Click **Edit** → **JSON**
-4. Add this statement:
+**CLI:**
+```bash
+# List inline policies on the Cognito role
+aws iam list-role-policies --role-name unum-prod-authenticated-role
 
-```json
-{
-  "Sid": "RekognitionAccess",
-  "Effect": "Allow",
-  "Action": "rekognition:DetectModerationLabels",
-  "Resource": "*"
-}
+# Get current policy
+aws iam get-role-policy --role-name unum-prod-authenticated-role --policy-name POLICY_NAME --query "PolicyDocument" > cognito-policy.json
+
+# Edit cognito-policy.json to add:
+# {
+#   "Sid": "RekognitionAccess",
+#   "Effect": "Allow",
+#   "Action": "rekognition:DetectModerationLabels",
+#   "Resource": "*"
+# }
+
+# Update the policy
+aws iam put-role-policy --role-name unum-prod-authenticated-role --policy-name POLICY_NAME --policy-document file://cognito-policy.json
+```
+
+#### Quick Setup Script
+
+For convenience, here's a script that does all the above (edit the variables first):
+
+```bash
+#!/bin/bash
+set -e
+
+# === EDIT THESE ===
+ENV="prod"  # or "dev"
+LAMBDA_FUNCTION="unum-backend-${ENV}"
+COGNITO_ROLE="unum-${ENV}-authenticated-role"
+ACCOUNT_ID="123456789012"  # Your AWS account ID
+
+# Get Lambda role ARN
+LAMBDA_ROLE_ARN=$(aws lambda get-function-configuration --function-name $LAMBDA_FUNCTION --query "Role" --output text)
+LAMBDA_ROLE_NAME=$(echo $LAMBDA_ROLE_ARN | sed 's/.*\///')
+COGNITO_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${COGNITO_ROLE}"
+
+echo "Lambda role: $LAMBDA_ROLE_ARN"
+echo "Cognito role: $COGNITO_ROLE_ARN"
+
+# Step 2: Update Cognito trust policy to allow Lambda
+echo "Updating Cognito role trust policy..."
+TRUST_POLICY=$(aws iam get-role --role-name $COGNITO_ROLE --query "Role.AssumeRolePolicyDocument" --output json)
+# Add Lambda as trusted principal (requires jq)
+NEW_TRUST=$(echo $TRUST_POLICY | jq --arg arn "$LAMBDA_ROLE_ARN" '.Statement += [{"Effect":"Allow","Principal":{"AWS":$arn},"Action":"sts:AssumeRole"}]')
+echo $NEW_TRUST > /tmp/trust-policy.json
+aws iam update-assume-role-policy --role-name $COGNITO_ROLE --policy-document file:///tmp/trust-policy.json
+
+# Step 3 & 4: You'll need to manually update the inline policies
+# because they have custom names. Use the CLI commands above.
+
+echo "Done! Now manually add the STS and Rekognition permissions to the role policies."
 ```
 
 #### Complete IAM Setup Checklist
