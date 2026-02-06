@@ -59,6 +59,9 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     handlePressOut,
   } = useCamera();
 
+  // Track which camera was used for the captured photo (for selfie mirror flip)
+  const [capturedWithFrontCamera, setCapturedWithFrontCamera] = React.useState(false);
+
   // Analytics
   const { trackScreen, trackUpload, track } = useAnalytics();
 
@@ -70,12 +73,13 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     trackScreen('Camera');
   }, [trackScreen]);
 
-  // Track photo capture
+  // Track photo capture and record which camera was used
   useEffect(() => {
     if (capturedPhoto) {
       track('photo_capture');
+      setCapturedWithFrontCamera(facing === 'front');
     }
-  }, [capturedPhoto, track]);
+  }, [capturedPhoto, track, facing]);
 
   // Track video recording completion
   useEffect(() => {
@@ -95,18 +99,26 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   // Keep shared values in sync with React state
   useEffect(() => {
     isRecordingShared.value = isRecording;
-    // Reset baseline and lock when recording stops
+    // Reset baseline and lock when recording stops (but preserve zoomBase for next capture)
     if (!isRecording) {
       hasSetBaseline.value = false;
       baselineY.value = 0;
       isLockedShared.value = false;
-      zoomBase.value = 0;
+      // Note: zoomBase is NOT reset here so pre-capture zoom is preserved
+      // It resets when clearMedia() is called (retake)
     }
-  }, [isRecording, isRecordingShared, hasSetBaseline, baselineY, isLockedShared, zoomBase]);
+  }, [isRecording, isRecordingShared, hasSetBaseline, baselineY, isLockedShared]);
 
   useEffect(() => {
     isLockedShared.value = isRecordingLocked;
   }, [isRecordingLocked, isLockedShared]);
+
+  // Reset zoomBase when media is cleared (retake) - zoom state goes to 0
+  useEffect(() => {
+    if (zoom === 0) {
+      zoomBase.value = 0;
+    }
+  }, [zoom, zoomBase]);
 
   // Callbacks for gesture handlers (must be called via runOnJS from worklets)
   const onGestureStart = useCallback(() => {
@@ -172,13 +184,13 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           runOnJS(onLockRecording)();
         }
 
-        // Zoom: vertical movement (unchanged)
+        // Zoom: vertical movement - use zoomBase to preserve pre-capture zoom level
         if (!hasSetBaseline.value) {
           baselineY.value = event.absoluteY;
           hasSetBaseline.value = true;
         }
         const delta = -(event.absoluteY - baselineY.value);
-        const newZoom = Math.max(0, Math.min(1, delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
+        const newZoom = Math.max(0, Math.min(1, zoomBase.value + delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
         runOnJS(updateZoom)(newZoom);
       }
     });
@@ -206,6 +218,37 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       'worklet';
       // Persist zoom level so the next gesture starts from here
       if (hasSetBaseline.value) {
+        const delta = -(event.absoluteY - baselineY.value);
+        zoomBase.value = Math.max(0, Math.min(1, zoomBase.value + delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
+      }
+      hasSetBaseline.value = false;
+      baselineY.value = 0;
+    });
+
+  // Pre-capture zoom gesture - allows zooming before taking photo/video
+  // Active only when NOT recording (before capture)
+  const preCaptureZoomGesture = Gesture.Pan()
+    .minDistance(5)
+    .onBegin((event) => {
+      'worklet';
+      // Only active when not recording
+      if (!isRecordingShared.value) {
+        baselineY.value = event.absoluteY;
+        hasSetBaseline.value = true;
+      }
+    })
+    .onUpdate((event) => {
+      'worklet';
+      if (!isRecordingShared.value && hasSetBaseline.value) {
+        const delta = -(event.absoluteY - baselineY.value);
+        const newZoom = Math.max(0, Math.min(1, zoomBase.value + delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
+        runOnJS(updateZoom)(newZoom);
+      }
+    })
+    .onEnd((event) => {
+      'worklet';
+      // Persist zoom level so the next gesture starts from here
+      if (!isRecordingShared.value && hasSetBaseline.value) {
         const delta = -(event.absoluteY - baselineY.value);
         zoomBase.value = Math.max(0, Math.min(1, zoomBase.value + delta / CAMERA_CONFIG.ZOOM_SCALE_PX));
       }
@@ -282,6 +325,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   const handleRetake = () => {
     clearMedia();
     setCaption('');
+    setCapturedWithFrontCamera(false);
   };
 
   const handleUpload = async () => {
@@ -434,8 +478,16 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
           {/* Preview fills entire screen and stays fixed */}
+          {/* Selfies (front camera) are mirrored to match what user saw in viewfinder */}
           {capturedPhoto ? (
-            <Image source={{ uri: capturedPhoto }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <Image
+              source={{ uri: capturedPhoto }}
+              style={[
+                StyleSheet.absoluteFill,
+                capturedWithFrontCamera && styles.mirroredImage,
+              ]}
+              resizeMode="cover"
+            />
           ) : (
             <VideoView
               player={videoPlayer}
@@ -541,11 +593,17 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       />
 
       {/* Transparent zoom overlay — sits ON TOP of CameraView so gestures aren't consumed by native camera */}
-      {isRecordingLocked && (
+      {/* Pre-capture zoom: always visible when not recording, allows zoom before capture */}
+      {/* Locked recording zoom: visible when recording is locked */}
+      {isRecordingLocked ? (
         <GestureDetector gesture={lockedZoomGesture}>
           <View style={styles.zoomOverlay} collapsable={false} />
         </GestureDetector>
-      )}
+      ) : !isRecording ? (
+        <GestureDetector gesture={preCaptureZoomGesture}>
+          <View style={styles.zoomOverlay} collapsable={false} />
+        </GestureDetector>
+      ) : null}
 
       {/* Overlay controls - positioned absolutely on top of camera */}
       {/* Close button */}
@@ -567,7 +625,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
               ? 'Recording... Slide up to zoom, right to lock'
               : !isCameraReady
                 ? 'Loading camera...'
-                : 'Tap for photo, hold for video'}
+                : 'Slide up to zoom. Tap for photo, hold for video'}
         </Text>
 
         <View style={styles.captureRow}>
@@ -630,6 +688,9 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  mirroredImage: {
+    transform: [{ scaleX: -1 }],
   },
   zoomOverlay: {
     ...StyleSheet.absoluteFillObject,
