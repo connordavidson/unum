@@ -908,11 +908,13 @@ GestureHandlerRootView
 **CameraScreen** (`src/screens/CameraScreen.tsx`) - Modal:
 - Live camera view (front/back toggle)
 - Tap to capture photo, hold to record video
-- Slide up while recording to zoom
+- Slide up anywhere on screen to zoom (before or during capture)
+- Zoom level persists when starting recording
 - Slide right while recording to lock (recording continues after lifting finger)
 - When locked, slide anywhere on screen to zoom, tap capture button to stop
 - Lock icon indicator shown to the right of capture button during recording
 - Video preview plays full video on loop (via `replaceAsync` + `play`)
+- Selfie preview is mirrored horizontally to match viewfinder
 - Preview state: retake, download, add caption, post
 - Returns to map after posting
 
