@@ -70,7 +70,7 @@ locals {
 # ============ DynamoDB Table ============
 
 resource "aws_dynamodb_table" "main" {
-  name         = "${local.name_prefix}-data"
+  name         = var.dynamo_table_name
   billing_mode = var.dynamodb_billing_mode
 
   # Only set these if using PROVISIONED billing
@@ -131,7 +131,7 @@ resource "aws_dynamodb_table" "main" {
 # ============ S3 Bucket ============
 
 resource "aws_s3_bucket" "media" {
-  bucket = "${local.name_prefix}-media-${local.account_id}"
+  bucket = var.s3_bucket_name != "" ? var.s3_bucket_name : "${local.name_prefix}-media-${local.account_id}"
 
   tags = local.common_tags
 }

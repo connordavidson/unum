@@ -32,7 +32,7 @@ resource "aws_cognito_identity_pool" "main" {
 # ============ IAM Role for Authenticated Users ============
 
 resource "aws_iam_role" "cognito_authenticated" {
-  name = "${local.name_prefix}-cognito-authenticated"
+  name = var.cognito_authenticated_role_name != "" ? var.cognito_authenticated_role_name : "${local.name_prefix}-cognito-authenticated"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -130,7 +130,7 @@ resource "aws_iam_role_policy" "cognito_authenticated" {
 # ============ IAM Role for Unauthenticated (Guest) Users ============
 
 resource "aws_iam_role" "cognito_unauthenticated" {
-  name = "${local.name_prefix}-cognito-unauthenticated"
+  name = var.cognito_unauthenticated_role_name != "" ? var.cognito_unauthenticated_role_name : "${local.name_prefix}-cognito-unauthenticated"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

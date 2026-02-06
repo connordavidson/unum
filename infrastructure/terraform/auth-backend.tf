@@ -8,18 +8,18 @@
 
 resource "aws_lambda_function" "auth" {
   filename         = data.archive_file.auth_lambda.output_path
-  function_name    = "${local.name_prefix}-auth"
+  function_name    = var.lambda_function_name != "" ? var.lambda_function_name : "${local.name_prefix}-auth"
   role             = aws_iam_role.auth_lambda.arn
   handler          = "index.handler"
   source_code_hash = data.archive_file.auth_lambda.output_base64sha256
   runtime          = "nodejs20.x"
   timeout          = 30
-  memory_size      = 256
+  memory_size      = var.lambda_memory_size
 
   environment {
     variables = {
       DYNAMO_TABLE              = var.dynamo_table_name
-      COGNITO_IDENTITY_POOL_ID  = var.cognito_identity_pool_id
+      COGNITO_IDENTITY_POOL_ID  = aws_cognito_identity_pool.main.id
       AWS_REGION_NAME           = var.aws_region
       APPLE_BUNDLE_ID           = var.apple_service_id
       SESSION_TTL_DAYS          = "30"
@@ -40,7 +40,7 @@ data "archive_file" "auth_lambda" {
 # ============ IAM Role for Lambda ============
 
 resource "aws_iam_role" "auth_lambda" {
-  name = "${local.name_prefix}-auth-lambda-role"
+  name = var.lambda_role_name != "" ? var.lambda_role_name : "${local.name_prefix}-auth-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
