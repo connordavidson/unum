@@ -59,6 +59,9 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     handlePressOut,
   } = useCamera();
 
+  // Track which camera was used for the captured photo (for selfie mirror flip)
+  const [capturedWithFrontCamera, setCapturedWithFrontCamera] = React.useState(false);
+
   // Analytics
   const { trackScreen, trackUpload, track } = useAnalytics();
 
@@ -70,12 +73,13 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     trackScreen('Camera');
   }, [trackScreen]);
 
-  // Track photo capture
+  // Track photo capture and record which camera was used
   useEffect(() => {
     if (capturedPhoto) {
       track('photo_capture');
+      setCapturedWithFrontCamera(facing === 'front');
     }
-  }, [capturedPhoto, track]);
+  }, [capturedPhoto, track, facing]);
 
   // Track video recording completion
   useEffect(() => {
@@ -321,6 +325,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
   const handleRetake = () => {
     clearMedia();
     setCaption('');
+    setCapturedWithFrontCamera(false);
   };
 
   const handleUpload = async () => {
@@ -473,8 +478,16 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
           {/* Preview fills entire screen and stays fixed */}
+          {/* Selfies (front camera) are mirrored to match what user saw in viewfinder */}
           {capturedPhoto ? (
-            <Image source={{ uri: capturedPhoto }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <Image
+              source={{ uri: capturedPhoto }}
+              style={[
+                StyleSheet.absoluteFill,
+                capturedWithFrontCamera && styles.mirroredImage,
+              ]}
+              resizeMode="cover"
+            />
           ) : (
             <VideoView
               player={videoPlayer}
@@ -675,6 +688,9 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  mirroredImage: {
+    transform: [{ scaleX: -1 }],
   },
   zoomOverlay: {
     ...StyleSheet.absoluteFillObject,
