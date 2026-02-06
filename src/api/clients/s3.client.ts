@@ -19,7 +19,13 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as FileSystem from 'expo-file-system/legacy';
 import { awsConfig, s3Config } from '../config';
 import { withRetry } from './retry';
-import { getAWSCredentialsService } from '../../services/aws-credentials.service';
+import {
+  getAWSCredentialsService,
+  AuthenticationRequiredError,
+} from '../../services/aws-credentials.service';
+
+// Re-export for callers that need to handle auth errors
+export { AuthenticationRequiredError } from '../../services/aws-credentials.service';
 import type { MediaType } from '../../shared/types';
 import type {
   PresignedUrlResponse,
@@ -50,6 +56,8 @@ let cachedS3Client: S3Client | null = null;
 let cachedCredentialsExpiration: Date | null = null;
 let cachedReadOnlyS3Client: S3Client | null = null;
 let cachedReadOnlyCredentialsExpiration: Date | null = null;
+let cachedWriteS3Client: S3Client | null = null;
+let cachedWriteCredentialsExpiration: Date | null = null;
 
 /**
  * Get an S3 Client with current credentials
@@ -115,6 +123,51 @@ async function getReadOnlyS3Client(): Promise<S3Client> {
   return cachedReadOnlyS3Client;
 }
 
+/**
+ * Get an S3 Client with authenticated credentials for WRITE operations.
+ * Unlike getS3Client(), this will NOT fall back to guest credentials.
+ * Throws AuthenticationRequiredError if authenticated credentials are unavailable.
+ */
+async function getWriteS3Client(): Promise<S3Client> {
+  const credentialsService = getAWSCredentialsService();
+  const credentials = await credentialsService.getAuthenticatedCredentials();
+
+  // Reuse cached client if credentials haven't changed
+  if (
+    cachedWriteS3Client &&
+    cachedWriteCredentialsExpiration &&
+    cachedWriteCredentialsExpiration.getTime() === credentials.expiration.getTime()
+  ) {
+    return cachedWriteS3Client;
+  }
+
+  // Create new client with authenticated credentials
+  cachedWriteS3Client = new S3Client({
+    region: awsConfig.region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+  cachedWriteCredentialsExpiration = credentials.expiration;
+
+  return cachedWriteS3Client;
+}
+
+/**
+ * Clear all cached S3 clients.
+ * Call this when credentials are cleared or refreshed.
+ */
+export function clearS3ClientCache(): void {
+  cachedS3Client = null;
+  cachedCredentialsExpiration = null;
+  cachedReadOnlyS3Client = null;
+  cachedReadOnlyCredentialsExpiration = null;
+  cachedWriteS3Client = null;
+  cachedWriteCredentialsExpiration = null;
+}
+
 // ============ Key Generation ============
 
 /**
@@ -171,7 +224,8 @@ export async function getPresignedUploadUrl(
     ContentType: contentType,
   });
 
-  const s3Client = await getS3Client();
+  // Use authenticated credentials for upload (write operation)
+  const s3Client = await getWriteS3Client();
   const url = await getSignedUrl(s3Client, command, {
     expiresIn: s3Config.presignedUrlExpiration.upload,
   });
@@ -234,7 +288,8 @@ export async function uploadToS3(
       ContentType: contentType,
     });
 
-    const s3Client = await getS3Client();
+    // Use authenticated credentials for upload (write operation)
+    const s3Client = await getWriteS3Client();
     const presignedUrl = await getSignedUrl(s3Client, command, {
       expiresIn: s3Config.presignedUrlExpiration.upload,
     });
@@ -285,7 +340,8 @@ export async function uploadMediaDirect(
   contentType: string
 ): Promise<void> {
   await withRetry(async () => {
-    const s3Client = await getS3Client();
+    // Use authenticated credentials for upload (write operation)
+    const s3Client = await getWriteS3Client();
     await s3Client.send(
       new PutObjectCommand({
         Bucket: awsConfig.s3Bucket,
@@ -372,7 +428,8 @@ export async function getCachedOrDownload(
  */
 export async function deleteFromS3(key: string): Promise<void> {
   await withRetry(async () => {
-    const s3Client = await getS3Client();
+    // Use authenticated credentials for delete (write operation)
+    const s3Client = await getWriteS3Client();
     await s3Client.send(
       new DeleteObjectCommand({
         Bucket: awsConfig.s3Bucket,

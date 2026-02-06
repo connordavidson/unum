@@ -27,6 +27,7 @@ import type {
   UploadQueryResult,
 } from '../repositories/interfaces/upload.repository';
 import { getLoggingService } from './logging.service';
+import { AuthenticationRequiredError } from './aws-credentials.service';
 
 const log = getLoggingService().createLogger('Upload');
 
@@ -103,6 +104,10 @@ export class UploadService {
         await this.remoteRepo.create(input);
         await this.localRepo.markSynced(localUpload.id);
       } catch (error) {
+        // Propagate auth errors - don't swallow them
+        if (error instanceof AuthenticationRequiredError) {
+          throw error;
+        }
         log.error('Remote create failed, queued for sync', error);
       }
     }

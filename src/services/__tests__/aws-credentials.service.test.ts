@@ -589,6 +589,147 @@ describe('AWSCredentialsService', () => {
     });
   });
 
+  // ============ expired credential refresh ============
+
+  describe('expired credential refresh', () => {
+    it('getCredentials() should refresh expired authenticated credentials via auth backend', async () => {
+      // First authenticate
+      const session = mockAuthBackendSession();
+      mockAuthBackend.authenticateWithApple.mockResolvedValue(session);
+      await service.initializeWithAppleToken('mock-token');
+
+      // Simulate credential expiration by setting expiration to past
+      // Access private credentials via getStatus (expiration is exposed)
+      // We need to re-create the service in an "authenticated but expired" state
+      // Instead, let's use a fresh service and set it up manually
+      const expiredService = new AWSCredentialsService();
+
+      // Initialize to get authenticated state
+      const expiredSession = mockAuthBackendSession();
+      expiredSession.credentials.expiration = new Date(Date.now() - 1000).toISOString(); // expired
+      mockAuthBackend.authenticateWithApple.mockResolvedValue(expiredSession);
+      await expiredService.initializeWithAppleToken('mock-token');
+
+      // Now credentials are authenticated but expired
+      expect(expiredService.hasAuthenticatedCredentials).toBe(true);
+      expect(expiredService.hasValidCredentials()).toBe(false);
+
+      // Set up auth backend refresh to succeed
+      jest.clearAllMocks();
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      const refreshResult = mockAuthBackendRefreshResult();
+      mockAuthBackend.refreshSession.mockResolvedValue(refreshResult);
+
+      const creds = await expiredService.getCredentials();
+
+      expect(mockAuthBackend.refreshSession).toHaveBeenCalled();
+      expect(creds.accessKeyId).toBe(refreshResult.credentials.accessKeyId);
+    });
+
+    it('getAuthenticatedCredentials() should refresh expired authenticated credentials via auth backend', async () => {
+      const expiredService = new AWSCredentialsService();
+
+      // Initialize with expired credentials
+      const expiredSession = mockAuthBackendSession();
+      expiredSession.credentials.expiration = new Date(Date.now() - 1000).toISOString();
+      mockAuthBackend.authenticateWithApple.mockResolvedValue(expiredSession);
+      await expiredService.initializeWithAppleToken('mock-token');
+
+      expect(expiredService.hasAuthenticatedCredentials).toBe(true);
+      expect(expiredService.hasValidCredentials()).toBe(false);
+
+      // Set up refresh to succeed
+      jest.clearAllMocks();
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      const refreshResult = mockAuthBackendRefreshResult();
+      mockAuthBackend.refreshSession.mockResolvedValue(refreshResult);
+
+      const creds = await expiredService.getAuthenticatedCredentials();
+
+      expect(mockAuthBackend.refreshSession).toHaveBeenCalled();
+      expect(creds.accessKeyId).toBe(refreshResult.credentials.accessKeyId);
+    });
+
+    it('getAuthenticatedCredentials() should throw when refresh fails for expired credentials', async () => {
+      const expiredService = new AWSCredentialsService();
+
+      // Initialize with expired credentials
+      const expiredSession = mockAuthBackendSession();
+      expiredSession.credentials.expiration = new Date(Date.now() - 1000).toISOString();
+      mockAuthBackend.authenticateWithApple.mockResolvedValue(expiredSession);
+      await expiredService.initializeWithAppleToken('mock-token');
+
+      // Set up refresh to fail
+      jest.clearAllMocks();
+      mockAuthBackend.hasStoredSession.mockResolvedValue(false);
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+
+      await expect(expiredService.getAuthenticatedCredentials()).rejects.toThrow(
+        AuthenticationRequiredError
+      );
+    });
+
+    it('getCredentials() should fall to expired/guest handling when refresh fails', async () => {
+      const expiredService = new AWSCredentialsService();
+
+      // Simulate the real-world scenario: app restored credentials via auth backend
+      // (which sets accessLevel='authenticated' but does NOT set appleIdToken)
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      const expiredRefresh = mockAuthBackendRefreshResult();
+      expiredRefresh.credentials.expiration = new Date(Date.now() - 1000).toISOString();
+      mockAuthBackend.refreshSession.mockResolvedValue(expiredRefresh);
+
+      // Trigger initial restoration — sets authenticated + expired credentials
+      await expiredService.tryRestoreFromAuthBackend();
+      expect(expiredService.hasAuthenticatedCredentials).toBe(true);
+      expect(expiredService.hasValidCredentials()).toBe(false);
+
+      // Now set up refresh to fail, but unauthenticated to succeed
+      jest.clearAllMocks();
+      mockAuthBackend.hasStoredSession.mockResolvedValue(false);
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockSecureStore.getItemAsync.mockResolvedValue(null);
+      (mockCognitoSend as jest.Mock)
+        .mockResolvedValueOnce(mockCognitoGetIdResponse('us-east-1:anon'))
+        .mockResolvedValueOnce(mockCognitoCredentialsResponse());
+
+      const creds = await expiredService.getCredentials();
+
+      // Should fall back to unauthenticated credentials
+      expect(creds.accessKeyId).toBe('AKIAIOSFODNN7EXAMPLE');
+    });
+
+    it('should deduplicate concurrent expired credential refresh calls', async () => {
+      const expiredService = new AWSCredentialsService();
+
+      // Initialize with expired credentials
+      const expiredSession = mockAuthBackendSession();
+      expiredSession.credentials.expiration = new Date(Date.now() - 1000).toISOString();
+      mockAuthBackend.authenticateWithApple.mockResolvedValue(expiredSession);
+      await expiredService.initializeWithAppleToken('mock-token');
+
+      // Set up refresh to succeed
+      jest.clearAllMocks();
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      const refreshResult = mockAuthBackendRefreshResult();
+      mockAuthBackend.refreshSession.mockResolvedValue(refreshResult);
+
+      // Call concurrently
+      const [creds1, creds2] = await Promise.all([
+        expiredService.getAuthenticatedCredentials(),
+        expiredService.getAuthenticatedCredentials(),
+      ]);
+
+      // Only one refresh call should have been made
+      expect(mockAuthBackend.refreshSession).toHaveBeenCalledTimes(1);
+      expect(creds1.accessKeyId).toBe(refreshResult.credentials.accessKeyId);
+      expect(creds2.accessKeyId).toBe(refreshResult.credentials.accessKeyId);
+    });
+  });
+
   // ============ credential expiration ============
 
   describe('credential expiration', () => {
