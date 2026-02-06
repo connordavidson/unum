@@ -543,6 +543,79 @@ class AWSCredentialsService {
   }
 
   /**
+   * Wait for authenticated credentials to be available.
+   * Unlike waitForReady(), this will NOT accept guest credentials.
+   * Returns true if authenticated credentials are available, false if user must re-authenticate.
+   * Use this before write operations to ensure credentials are valid.
+   */
+  async waitForAuthenticated(): Promise<boolean> {
+    log.debug('waitForAuthenticated called', { accessLevel: this.accessLevel, hasCredentials: !!this.credentials, isValid: this.credentials ? this.isValid() : false });
+
+    // Wait for any ongoing restoration
+    if (this.restorationPromise) {
+      log.debug('Waiting for restoration to complete (authenticated)...');
+      try {
+        await this.restorationPromise;
+      } catch {
+        // Restoration failed, continue to check
+      }
+    }
+
+    // If already authenticated and valid, return true
+    if (this.accessLevel === 'authenticated' && this.isValid()) {
+      log.debug('waitForAuthenticated: already authenticated and valid');
+      return true;
+    }
+
+    // If authenticated but expired, try refresh
+    if (this.accessLevel === 'authenticated') {
+      log.debug('Credentials expired, attempting refresh for write operation...');
+      const refreshed = await this.refreshExpiredCredentials();
+      log.debug('waitForAuthenticated: refresh result', { success: refreshed !== null });
+      return refreshed !== null;
+    }
+
+    // Handle state corruption from proactive foreground refresh failure
+    // If accessLevel got corrupted to 'guest' or 'expired' but we still have a stored
+    // refresh token, try to restore authenticated credentials
+    if (this.accessLevel === 'guest' || this.accessLevel === 'expired') {
+      log.debug('waitForAuthenticated: attempting recovery from guest/expired state');
+      const authBackend = getAuthBackendService();
+      const isConfigured = authBackend.isConfigured();
+      log.debug('waitForAuthenticated: auth backend configured?', { isConfigured });
+      if (isConfigured) {
+        const hasSession = await authBackend.hasStoredSession();
+        log.debug('waitForAuthenticated: has stored session?', { hasSession });
+        if (hasSession) {
+          log.debug('Found stored session despite guest/expired state, attempting refresh...');
+          const restored = await this.tryRestoreFromAuthBackend();
+          log.debug('waitForAuthenticated: restore result', { restored, accessLevel: this.accessLevel, isValid: this.isValid() });
+          if (restored && this.accessLevel === 'authenticated' && this.isValid()) {
+            return true;
+          }
+        }
+      }
+    }
+
+    // If not initialized, try restoration (but only accept authenticated result)
+    if (this.accessLevel === 'not_initialized') {
+      log.debug('Not initialized, trying to restore authenticated credentials for write...');
+      this.restorationPromise = this.doRestoration();
+      try {
+        await this.restorationPromise;
+      } finally {
+        this.restorationPromise = null;
+      }
+      log.debug('waitForAuthenticated: after doRestoration', { accessLevel: this.accessLevel, isValid: this.isValid() });
+      return this.accessLevel === 'authenticated' && this.isValid();
+    }
+
+    // Guest or expired with no stored session - user must re-authenticate
+    log.debug('waitForAuthenticated: returning false, no valid auth path', { accessLevel: this.accessLevel });
+    return false;
+  }
+
+  /**
    * Get current status for debugging
    */
   getStatus(): CredentialStatus {

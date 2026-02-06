@@ -22,6 +22,10 @@ import type {
   MediaUploadResult,
 } from '../repositories/interfaces/media.repository';
 import { getLoggingService } from './logging.service';
+import {
+  getAWSCredentialsService,
+  AuthenticationRequiredError,
+} from './aws-credentials.service';
 
 const log = getLoggingService().createLogger('Media');
 
@@ -122,6 +126,16 @@ export class MediaService {
       return localResult;
     }
 
+    // Pre-validate credentials before attempting S3 upload
+    const credService = getAWSCredentialsService();
+    const isAuthenticated = await credService.waitForAuthenticated();
+    if (!isAuthenticated) {
+      log.error('Upload aborted: credentials not authenticated');
+      throw new AuthenticationRequiredError(
+        'Your session has expired. Please sign in again to upload.'
+      );
+    }
+
     // Upload to S3
     try {
       const remoteResult = await this.remoteRepo.upload(
@@ -138,6 +152,10 @@ export class MediaService {
 
       return remoteResult;
     } catch (error) {
+      // Propagate auth errors - don't swallow them
+      if (error instanceof AuthenticationRequiredError) {
+        throw error;
+      }
       log.error('S3 upload failed, returning local result', error);
       if (onProgress) onProgress(100);
       return localResult;

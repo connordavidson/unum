@@ -410,7 +410,9 @@ The `aws-credentials.service` tracks credential state as a discriminated access 
 3. If `not_initialized`, attempt full restoration (auth backend → legacy Cognito → guest)
 4. Fall back to unauthenticated (guest) credentials
 
-**Write enforcement:** `getAuthenticatedCredentials()` throws `AuthenticationRequiredError` if only guest credentials are available. All DynamoDB write operations use `getWriteDocClient()` which calls this method. If credentials are `authenticated` but expired, it first attempts to refresh via the auth backend before throwing.
+**Write enforcement:** `getAuthenticatedCredentials()` throws `AuthenticationRequiredError` if only guest credentials are available. All DynamoDB write operations use `getWriteDocClient()` which calls this method. All S3 write operations (upload, delete) use `getWriteS3Client()` which also calls this method. If credentials are `authenticated` but expired, it first attempts to refresh via the auth backend before throwing.
+
+**Pre-upload credential validation:** Before attempting S3 uploads, `media.service.ts` calls `waitForAuthenticated()` to ensure credentials are valid. This method waits for any ongoing restoration, attempts refresh if needed, and returns `false` if the user must re-authenticate. This prevents wasted upload attempts with expired credentials.
 
 **Proactive foreground refresh:** `useAuth` listens for AppState `active` transitions. When the app comes to foreground, if the user has authenticated credentials that have expired, it proactively calls `getCredentials()` to refresh them in the background. This ensures credentials are ready before the user attempts a write operation.
 
