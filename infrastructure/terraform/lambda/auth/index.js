@@ -11,9 +11,9 @@
  */
 
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityClient, GetIdCommand, GetCredentialsForIdentityCommand } = require('@aws-sdk/client-cognito-identity');
-const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
+const { STSClient, AssumeRoleCommand, GetCallerIdentityCommand } = require('@aws-sdk/client-sts');
 const crypto = require('crypto');
 
 // ============ Configuration ============
@@ -101,7 +101,7 @@ async function createSession(userId, cognitoIdentityId, appleIdentityToken) {
 }
 
 async function getSessionByRefreshToken(refreshToken) {
-  // Look up the refresh token pointer item (O(1) instead of table scan)
+  // Try O(1) lookup first (new sessions have REFRESH# pointer items)
   const lookupResult = await dynamoClient.send(new GetCommand({
     TableName: DYNAMO_TABLE,
     Key: {
@@ -110,26 +110,60 @@ async function getSessionByRefreshToken(refreshToken) {
     },
   }));
 
-  if (!lookupResult.Item) {
-    return null;
+  let session = null;
+
+  if (lookupResult.Item) {
+    // Found pointer, fetch the full session
+    const { sessionId, userId } = lookupResult.Item;
+    const sessionResult = await dynamoClient.send(new GetCommand({
+      TableName: DYNAMO_TABLE,
+      Key: {
+        PK: `SESSION#${sessionId}`,
+        SK: `USER#${userId}`,
+      },
+    }));
+    session = sessionResult.Item || null;
+  } else {
+    // Fallback: scan for legacy sessions without REFRESH# pointer
+    // This handles sessions created before the pointer items were added
+    console.log('REFRESH# pointer not found, scanning for legacy session...', { refreshToken });
+    const scanResult = await dynamoClient.send(new ScanCommand({
+      TableName: DYNAMO_TABLE,
+      FilterExpression: 'begins_with(PK, :prefix) AND refreshToken = :token',
+      ExpressionAttributeValues: {
+        ':prefix': 'SESSION#',
+        ':token': refreshToken,
+      },
+    }));
+    console.log('Scan result:', { count: scanResult.Count, scannedCount: scanResult.ScannedCount });
+
+    if (scanResult.Items && scanResult.Items.length > 0) {
+      session = scanResult.Items[0];
+      console.log('Found legacy session via scan:', session.sessionId);
+
+      // Backfill the REFRESH# pointer for future O(1) lookups
+      try {
+        await dynamoClient.send(new PutCommand({
+          TableName: DYNAMO_TABLE,
+          Item: {
+            PK: `REFRESH#${refreshToken}`,
+            SK: `REFRESH#${refreshToken}`,
+            sessionId: session.sessionId,
+            userId: session.userId,
+            ttl: session.ttl,
+          },
+        }));
+        console.log('Backfilled REFRESH# pointer for session:', session.sessionId);
+      } catch (backfillError) {
+        console.warn('Failed to backfill REFRESH# pointer:', backfillError);
+        // Non-fatal, continue with the session we found
+      }
+    }
   }
 
-  const { sessionId, userId } = lookupResult.Item;
-
-  // Fetch the full session item
-  const sessionResult = await dynamoClient.send(new GetCommand({
-    TableName: DYNAMO_TABLE,
-    Key: {
-      PK: `SESSION#${sessionId}`,
-      SK: `USER#${userId}`,
-    },
-  }));
-
-  if (!sessionResult.Item) {
+  if (!session) {
     return null;
   }
-
-  const session = sessionResult.Item;
 
   // Check if expired
   if (new Date(session.expiresAt) < new Date()) {
@@ -209,6 +243,19 @@ async function getCredentialsViaSTS(userId) {
     throw new Error('AUTHENTICATED_ROLE_ARN not configured');
   }
 
+  // Debug: log caller identity
+  try {
+    const identity = await stsClient.send(new GetCallerIdentityCommand({}));
+    console.log('Lambda caller identity:', {
+      Account: identity.Account,
+      Arn: identity.Arn,
+      UserId: identity.UserId,
+    });
+  } catch (e) {
+    console.log('Could not get caller identity:', e.message);
+  }
+
+  console.log('Attempting to assume role:', AUTHENTICATED_ROLE_ARN);
   const assumeRoleResponse = await stsClient.send(new AssumeRoleCommand({
     RoleArn: AUTHENTICATED_ROLE_ARN,
     RoleSessionName: `refresh-${userId.substring(0, 32)}`,
@@ -298,7 +345,8 @@ async function handleRefresh(body) {
       credentials = result.credentials;
       identityId = result.identityId;
     } catch (cognitoError) {
-      console.log('Cognito refresh with Apple token failed, trying STS AssumeRole');
+      console.log('Cognito refresh with Apple token failed:', cognitoError.message);
+      console.log('Trying STS AssumeRole fallback with role:', AUTHENTICATED_ROLE_ARN);
 
       // Apple token expired. Use STS AssumeRole to issue authenticated credentials.
       // The Lambda has already verified the user via their refresh token (30-day TTL),
@@ -307,7 +355,12 @@ async function handleRefresh(body) {
         credentials = await getCredentialsViaSTS(session.userId);
         console.log('Issued credentials via STS AssumeRole for user:', session.userId);
       } catch (stsError) {
-        console.error('STS AssumeRole fallback failed:', stsError);
+        console.error('STS AssumeRole fallback failed:', {
+          message: stsError.message,
+          name: stsError.name,
+          code: stsError.Code || stsError.code,
+          roleArn: AUTHENTICATED_ROLE_ARN,
+        });
         return response(401, {
           error: 'Session expired',
           code: 'REAUTH_REQUIRED',

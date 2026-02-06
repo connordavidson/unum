@@ -353,17 +353,30 @@ The STS fallback is authorized because the Lambda has already verified the user 
 | `variables.tf` | Configurable inputs (environment, region, billing mode) |
 | `outputs.tf` | Resource ARNs, names, and auto-generated `.env` content |
 
-### Manual IAM Configuration (Required)
+### IAM Configuration (Managed by Terraform)
 
-Terraform manages the base infrastructure, but some IAM configurations must be manually verified/added in the AWS Console. This is because the Lambda and Cognito roles may be created separately or have different naming conventions.
+**As of February 2026, all IAM configuration is managed by Terraform.** The credential refresh flow is fully automated:
 
-#### Why Manual Setup is Needed
+1. **Lambda role** (`unum-{env}-auth-lambda-role`) has `sts:AssumeRole` permission on the Cognito authenticated role
+2. **Cognito authenticated role** (`unum-{env}-cognito-authenticated`) trusts the Lambda role
+3. **Lambda env var** `AUTHENTICATED_ROLE_ARN` is automatically set
+
+To apply IAM configuration:
+```bash
+cd infrastructure/terraform
+terraform workspace select dev  # or prod
+terraform apply
+```
+
+#### Troubleshooting: How the Credential Refresh Works
 
 The credential refresh flow requires:
 1. **Lambda** calls `sts:AssumeRole` on the Cognito authenticated role
 2. **Cognito authenticated role** must trust the Lambda role
 
 If these aren't configured, users will get `REAUTH_REQUIRED` errors after ~15 minutes when the Apple identity token expires and the STS fallback fails.
+
+#### Manual Verification (For Troubleshooting Only)
 
 #### Step 1: Find Your Role ARNs
 
@@ -459,6 +472,34 @@ aws iam get-role-policy --role-name unum-prod-authenticated-role --policy-name P
 # Update the policy
 aws iam put-role-policy --role-name unum-prod-authenticated-role --policy-name POLICY_NAME --policy-document file://cognito-policy.json
 ```
+
+#### Step 5: Configure Lambda Environment Variables
+
+The Lambda needs to know which Cognito authenticated role to assume. This is set via the `AUTHENTICATED_ROLE_ARN` environment variable.
+
+**CLI:**
+```bash
+# Get current env vars
+aws lambda get-function-configuration --function-name unum-backend-prod --query "Environment.Variables" --output json
+
+# Add AUTHENTICATED_ROLE_ARN (include ALL existing env vars plus the new one)
+aws lambda update-function-configuration \
+  --function-name unum-backend-prod \
+  --environment "Variables={COGNITO_IDENTITY_POOL_ID=us-east-1:YOUR_POOL_ID,APPLE_BUNDLE_ID=com.unum.app,AWS_REGION_NAME=us-east-1,DYNAMO_TABLE=unum-prod,SESSION_TTL_DAYS=30,AUTHENTICATED_ROLE_ARN=arn:aws:iam::123456789:role/unum-prod-authenticated-role}"
+```
+
+**Required Lambda Environment Variables:**
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `COGNITO_IDENTITY_POOL_ID` | Cognito Identity Pool ID | `us-east-1:abc123-...` |
+| `APPLE_BUNDLE_ID` | iOS app bundle ID | `com.unum.app` |
+| `AWS_REGION_NAME` | AWS region | `us-east-1` |
+| `DYNAMO_TABLE` | DynamoDB table name | `unum-prod` |
+| `SESSION_TTL_DAYS` | Refresh token validity | `30` |
+| `AUTHENTICATED_ROLE_ARN` | Cognito auth role for STS | `arn:aws:iam::123456789:role/...` |
+
+**Important:** Without `AUTHENTICATED_ROLE_ARN`, the STS fallback will fail silently and users will get `REAUTH_REQUIRED` errors when their Apple token expires (~10 minutes).
 
 #### Quick Setup Script
 

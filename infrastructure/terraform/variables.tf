@@ -88,3 +88,33 @@ variable "s3_bucket_name" {
   type        = string
   default     = ""
 }
+
+variable "lambda_function_name" {
+  description = "Name of existing Lambda function to use"
+  type        = string
+  default     = ""
+}
+
+variable "lambda_role_name" {
+  description = "Name of existing Lambda IAM role to use"
+  type        = string
+  default     = ""
+}
+
+variable "cognito_authenticated_role_name" {
+  description = "Name of existing Cognito authenticated IAM role"
+  type        = string
+  default     = ""
+}
+
+variable "cognito_unauthenticated_role_name" {
+  description = "Name of existing Cognito unauthenticated IAM role"
+  type        = string
+  default     = ""
+}
+
+variable "lambda_memory_size" {
+  description = "Memory size for Lambda function in MB"
+  type        = number
+  default     = 256
+}
