@@ -321,9 +321,27 @@ A Node.js 20 Lambda behind API Gateway v2 handles session management:
 
 **Session model:** On initial auth, the Lambda creates a session item and a refresh token lookup item in DynamoDB. The refresh token has a 30-day TTL. When credentials expire (1 hour), the app calls `/auth/refresh` with the stored refresh token.
 
-**STS fallback:** Apple identity tokens expire in ~10 minutes. After that, Cognito can't issue authenticated credentials. The Lambda works around this by using STS AssumeRole on the Cognito authenticated IAM role, since it has already verified the user via their refresh token.
+**STS fallback (critical for 15+ minute background scenarios):** Apple identity tokens expire in ~10 minutes. After that, Cognito can't issue authenticated credentials directly. The Lambda works around this by:
 
-**IAM permissions:** The Lambda role can read/write DynamoDB, call Cognito Identity operations, and assume the authenticated Cognito role via STS.
+1. First trying Cognito with the stored Apple token (works if <10 min since sign-in)
+2. If that fails, using STS AssumeRole on the Cognito authenticated IAM role
+
+The STS fallback is authorized because the Lambda has already verified the user via their valid refresh token. This is why the IAM trust policy configuration (see "Manual IAM Configuration" section below) is critical—without it, the STS call fails and users get `REAUTH_REQUIRED` errors.
+
+**Lambda environment variables:**
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `DYNAMO_TABLE` | `unum-{env}-data` | DynamoDB table for sessions |
+| `COGNITO_IDENTITY_POOL_ID` | `us-east-1:...` | Cognito pool for direct auth |
+| `AUTHENTICATED_ROLE_ARN` | `arn:aws:iam::...` | Role to assume via STS |
+| `APPLE_BUNDLE_ID` | `com.unum.app` | For Apple token validation |
+| `SESSION_TTL_DAYS` | `30` | Refresh token lifetime |
+
+**IAM permissions:** The Lambda role needs:
+- DynamoDB read/write (session storage)
+- Cognito Identity operations (GetId, GetCredentialsForIdentity)
+- `sts:AssumeRole` on the Cognito authenticated role (for STS fallback)
 
 ### Terraform Files
 
@@ -334,6 +352,110 @@ A Node.js 20 Lambda behind API Gateway v2 handles session management:
 | `auth-backend.tf` | Lambda function, API Gateway, Lambda IAM role |
 | `variables.tf` | Configurable inputs (environment, region, billing mode) |
 | `outputs.tf` | Resource ARNs, names, and auto-generated `.env` content |
+
+### Manual IAM Configuration (Required)
+
+Terraform manages the base infrastructure, but some IAM configurations must be manually verified/added in the AWS Console. This is because the Lambda and Cognito roles may be created separately or have different naming conventions.
+
+#### Why Manual Setup is Needed
+
+The credential refresh flow requires:
+1. **Lambda** calls `sts:AssumeRole` on the Cognito authenticated role
+2. **Cognito authenticated role** must trust the Lambda role
+
+If these aren't configured, users will get `REAUTH_REQUIRED` errors after ~15 minutes when the Apple identity token expires and the STS fallback fails.
+
+#### Step 1: Find Your Role ARNs
+
+```bash
+# Get Lambda role ARN
+aws lambda get-function-configuration --function-name unum-backend-{env} --query "Role" --output text
+
+# Example output: arn:aws:iam::123456789:role/service-role/unum-backend-prod-role-abc123
+```
+
+The Cognito authenticated role is typically named `unum-{env}-authenticated-role` or `Cognito_{poolname}Auth_Role`.
+
+#### Step 2: Update Cognito Authenticated Role Trust Policy
+
+1. **IAM** → **Roles** → find your Cognito authenticated role
+2. Click **Trust relationships** tab
+3. Click **Edit trust policy**
+4. Add this statement to the `Statement` array:
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": {
+    "AWS": "<Lambda role ARN from Step 1>"
+  },
+  "Action": "sts:AssumeRole"
+}
+```
+
+This allows the Lambda to assume the Cognito role and issue credentials on behalf of authenticated users.
+
+#### Step 3: Update Lambda Role Permissions Policy
+
+1. **IAM** → **Roles** → find your Lambda role (from Step 1)
+2. Click on the **permissions policy** (not trust policy)
+3. Click **Edit** → **JSON**
+4. Add these statements to the `Statement` array:
+
+```json
+{
+  "Sid": "STSAssumeAuthenticatedRole",
+  "Effect": "Allow",
+  "Action": "sts:AssumeRole",
+  "Resource": "<Cognito authenticated role ARN>"
+},
+{
+  "Sid": "RekognitionAccess",
+  "Effect": "Allow",
+  "Action": "rekognition:DetectModerationLabels",
+  "Resource": "*"
+}
+```
+
+#### Step 4: Add Rekognition to Cognito Authenticated Role
+
+The Cognito authenticated role also needs Rekognition permission for content moderation:
+
+1. **IAM** → **Roles** → find your Cognito authenticated role
+2. Click on the **permissions policy**
+3. Click **Edit** → **JSON**
+4. Add this statement:
+
+```json
+{
+  "Sid": "RekognitionAccess",
+  "Effect": "Allow",
+  "Action": "rekognition:DetectModerationLabels",
+  "Resource": "*"
+}
+```
+
+#### Complete IAM Setup Checklist
+
+| Role | Permission | Purpose |
+|------|------------|---------|
+| Lambda role | `sts:AssumeRole` on Cognito auth role | Issue credentials when Apple token expires |
+| Lambda role | `rekognition:DetectModerationLabels` | Content moderation (optional, for Lambda-side moderation) |
+| Cognito auth role | Trust Lambda role | Allow Lambda to assume role |
+| Cognito auth role | `rekognition:DetectModerationLabels` | Content moderation from app |
+| Cognito auth role | DynamoDB read/write | App data operations |
+| Cognito auth role | S3 read/write | Media upload/download |
+
+#### Verifying the Setup
+
+After configuration, test the full auth flow:
+
+1. Sign in with Apple
+2. Upload a photo (should succeed)
+3. Background the app for 15+ minutes
+4. Open the app and upload again
+
+If uploads fail with "session expired" after backgrounding, check CloudWatch logs for the Lambda to see which step is failing.
 
 ---
 
@@ -970,6 +1092,34 @@ terraform output -json
 | `S3_BUCKET` | `unum-dev-media-123` | S3 bucket name |
 | `AUTH_API_URL` | `https://xxx.execute-api...` | Lambda auth endpoint |
 | `USE_AWS_BACKEND` | `true` | Enable remote operations |
+
+### Switching Between Dev and Prod Locally
+
+To test with production AWS resources on your local machine:
+
+```bash
+# Run with production environment
+APP_ENV=production npx expo start
+
+# Run with development environment (default)
+APP_ENV=development npx expo start
+# or just:
+npx expo start
+```
+
+**Important:** Before switching environments:
+1. Delete the app from simulator/device to clear cached credentials
+2. Or sign out first to avoid mixing dev/prod auth state
+
+**What changes between environments:**
+
+| Resource | Dev | Prod |
+|----------|-----|------|
+| Cognito Pool | `us-east-1:97c8dfa9-...` | `us-east-1:341a0a8b-...` |
+| DynamoDB | `unum-dev` | `unum-prod` |
+| S3 Bucket | `unum-media-dev-7x4k2` | `unum-media-prod` |
+| Auth API | `qj9x18vc59.execute-api...` | `xsxqd5icsg.execute-api...` |
+| Lambda | `unum-backend-dev` | `unum-backend-prod` |
 
 ---
 
