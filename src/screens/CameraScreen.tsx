@@ -372,7 +372,17 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       navigation.goBack();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Upload failed. Please try again.';
-      Alert.alert('Upload Failed', message);
+      const isAuthError = message.includes('session has expired') || message.includes('sign in');
+
+      if (isAuthError) {
+        Alert.alert('Session Expired', message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In', onPress: () => navigation.navigate('SignIn') },
+        ]);
+      } else {
+        Alert.alert('Upload Failed', message);
+      }
+
       if (__DEV__) console.error('Upload failed:', error);
       trackUpload('fail', { media_type: mediaType, has_caption: hasCaption });
     } finally {
