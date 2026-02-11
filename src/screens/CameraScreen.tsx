@@ -555,6 +555,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             </TouchableOpacity>
           </View>
 
+{/* Delayed publish button - hidden for now
           <TouchableOpacity
             style={[styles.delayButton, isUploading && styles.uploadButtonDisabled]}
             onPress={handleDelayedUpload}
@@ -565,6 +566,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             <Ionicons name="time-outline" size={20} color={COLORS.BACKGROUND} />
             <Text style={styles.delayText}>Post in 5 minutes</Text>
           </TouchableOpacity>
+*/}
         </View>
 
         {/* Caption input - slides up with keyboard */}
