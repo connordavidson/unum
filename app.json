@@ -18,6 +18,7 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Unum needs camera access to capture photos and videos for sharing.",
         "NSMicrophoneUsageDescription": "Unum needs microphone access to record video with audio.",
         "NSLocationWhenInUseUsageDescription": "Unum needs your location to show nearby content and tag your uploads.",

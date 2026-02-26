@@ -24,14 +24,12 @@
     },
     "preview-prod": {
       "distribution": "internal",
-      "channel": "preview-prod",
       "env": {
         "APP_ENV": "production"
       }
     },
     "production": {
       "distribution": "store",
-      "channel": "production",
       "env": {
         "APP_ENV": "production"
       },
@@ -46,8 +44,8 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "YOUR_APPLE_ID",
-        "ascAppId": "YOUR_ASC_APP_ID",
+        "appleId": "connor.j.davidson@gmail.com",
+        "ascAppId": "6758638577",
         "appleTeamId": "T4LY8DN565"
       }
     }
