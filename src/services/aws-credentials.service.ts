@@ -288,7 +288,25 @@ class AWSCredentialsService {
       }
     }
 
-    // If we only have guest or expired credentials, the user must re-authenticate
+    // If expired or guest, attempt auth backend recovery before giving up.
+    // accessLevel becomes 'expired' when a proactive foreground refresh fails
+    // due to a transient server error, even though the 30-day refresh token
+    // may still be valid in SecureStore. Mirrors waitForAuthenticated() logic.
+    if (this.accessLevel === 'guest' || this.accessLevel === 'expired') {
+      const authBackend = getAuthBackendService();
+      if (authBackend.isConfigured()) {
+        const hasSession = await authBackend.hasStoredSession();
+        if (hasSession) {
+          log.debug('getAuthenticatedCredentials: recovering from guest/expired state...');
+          const restored = await this.tryRestoreFromAuthBackend();
+          if (restored && this.accessLevel === 'authenticated' && this.isValid()) {
+            return this.credentials!;
+          }
+        }
+      }
+    }
+
+    // All recovery paths exhausted — user must re-authenticate
     throw new AuthenticationRequiredError();
   }
 
@@ -572,7 +590,27 @@ class AWSCredentialsService {
       log.debug('Credentials expired, attempting refresh for write operation...');
       const refreshed = await this.refreshExpiredCredentials();
       log.debug('waitForAuthenticated: refresh result', { success: refreshed !== null });
-      return refreshed !== null;
+      if (refreshed !== null) {
+        return true;
+      }
+
+      // Initial refresh failed (e.g., transient STS error, or concurrent with the
+      // proactive getCredentials() foreground refresh — both share the same dedup and
+      // a single server-side failure affects both). The refresh token may still be
+      // valid. Try one direct restore before giving up.
+      log.debug('waitForAuthenticated: initial refresh failed, attempting direct restore...');
+      const authBackend = getAuthBackendService();
+      if (authBackend.isConfigured()) {
+        const hasSession = await authBackend.hasStoredSession();
+        if (hasSession) {
+          const restored = await this.tryRestoreFromAuthBackend();
+          log.debug('waitForAuthenticated: direct restore result', { restored, accessLevel: this.accessLevel, isValid: this.isValid() });
+          if (restored && this.accessLevel === 'authenticated' && this.isValid()) {
+            return true;
+          }
+        }
+      }
+      return false;
     }
 
     // Handle state corruption from proactive foreground refresh failure

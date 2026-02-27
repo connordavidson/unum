@@ -361,10 +361,14 @@ async function handleRefresh(body) {
           code: stsError.Code || stsError.code,
           roleArn: AUTHENTICATED_ROLE_ARN,
         });
-        return response(401, {
-          error: 'Session expired',
-          code: 'REAUTH_REQUIRED',
-          message: 'Please sign in again'
+        // Return 503 (server error), NOT 401.
+        // The refresh token is still valid (30-day TTL). Returning 401 would
+        // cause the client to destroy the valid refresh token unnecessarily,
+        // forcing re-authentication even though the session is intact.
+        return response(503, {
+          error: 'Credential refresh temporarily failed',
+          code: 'STS_FAILURE',
+          message: 'Please try again'
         });
       }
     }

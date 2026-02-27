@@ -166,11 +166,22 @@ class AuthBackendService {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Unknown error', code: '' }));
 
-      // If refresh token is invalid/expired, clear stored tokens
+      // 401 = refresh token genuinely invalid/expired on the server.
+      // Clear stored tokens so the user is prompted to re-authenticate.
       if (response.status === 401) {
-        log.debug('Refresh token expired, clearing tokens');
+        log.debug('Refresh token invalid/expired (401), clearing stored session');
         await this.clearSession();
         throw new Error(`[AuthBackend] Session expired: ${error.code || 'REAUTH_REQUIRED'}`);
+      }
+
+      // 5xx = server-side failure (e.g. STS infrastructure error).
+      // The refresh token is still valid — do NOT clear it.
+      // Let the error propagate so the caller can retry later.
+      if (response.status >= 500) {
+        log.warn('Server-side refresh failure, refresh token preserved', {
+          status: response.status,
+          code: error.code,
+        });
       }
 
       throw new Error(`[AuthBackend] Refresh failed: ${error.error || response.statusText}`);

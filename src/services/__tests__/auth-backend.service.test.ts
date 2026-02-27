@@ -281,6 +281,54 @@ describe('AuthBackendService', () => {
     });
   });
 
+  describe('refreshSession - server error handling', () => {
+    it('should NOT clear refresh token on 503 (STS server error)', async () => {
+      mockSecureStore.getItemAsync.mockResolvedValue('valid-refresh-token');
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        json: () =>
+          Promise.resolve({ error: 'Credential refresh temporarily failed', code: 'STS_FAILURE' }),
+      });
+
+      await expect(serviceInstance.refreshSession()).rejects.toThrow('Refresh failed');
+
+      // CRITICAL: refresh token must NOT be cleared for server-side failures
+      expect(mockSecureStore.deleteItemAsync).not.toHaveBeenCalledWith('unum_refresh_token');
+      expect(mockSecureStore.deleteItemAsync).not.toHaveBeenCalledWith('unum_session_id');
+    });
+
+    it('should NOT clear refresh token on 500 (internal server error)', async () => {
+      mockSecureStore.getItemAsync.mockResolvedValue('valid-refresh-token');
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        json: () => Promise.resolve({ error: 'Internal error' }),
+      });
+
+      await expect(serviceInstance.refreshSession()).rejects.toThrow('Refresh failed');
+
+      expect(mockSecureStore.deleteItemAsync).not.toHaveBeenCalledWith('unum_refresh_token');
+      expect(mockSecureStore.deleteItemAsync).not.toHaveBeenCalledWith('unum_session_id');
+    });
+
+    it('should STILL clear refresh token on 401 (refresh token genuinely invalid)', async () => {
+      mockSecureStore.getItemAsync.mockResolvedValue('expired-refresh-token');
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: 'Expired', code: 'REAUTH_REQUIRED' }),
+      });
+
+      await expect(serviceInstance.refreshSession()).rejects.toThrow('Session expired');
+
+      expect(mockSecureStore.deleteItemAsync).toHaveBeenCalledWith('unum_refresh_token');
+      expect(mockSecureStore.deleteItemAsync).toHaveBeenCalledWith('unum_session_id');
+    });
+  });
+
   describe('hasStoredSession', () => {
     it('should return true when refresh token exists in SecureStore', async () => {
       mockSecureStore.getItemAsync.mockResolvedValue('stored-refresh-token');
