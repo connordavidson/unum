@@ -589,6 +589,155 @@ describe('AWSCredentialsService', () => {
     });
   });
 
+  // ============ getAuthenticatedCredentials - expired state recovery ============
+
+  describe('getAuthenticatedCredentials - expired state recovery', () => {
+    it('should recover from expired state via auth backend when stored session exists', async () => {
+      // Simulate: proactive foreground refresh failed → accessLevel='expired'
+      // but refresh token is still valid in SecureStore
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      const expiredRefreshResult = mockAuthBackendRefreshResult();
+      expiredRefreshResult.credentials.expiration = new Date(Date.now() - 1000).toISOString();
+      mockAuthBackend.refreshSession.mockResolvedValueOnce(expiredRefreshResult);
+
+      // First: restore gives authenticated but expired credentials
+      await service.tryRestoreFromAuthBackend();
+      expect(service.hasAuthenticatedCredentials).toBe(true);
+      expect(service.hasValidCredentials()).toBe(false);
+
+      // Simulate proactive foreground refresh corrupting state to 'expired'
+      (service as any).accessLevel = 'expired';
+
+      // Set up a fresh successful refresh
+      jest.clearAllMocks();
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      const freshRefresh = mockAuthBackendRefreshResult();
+      mockAuthBackend.refreshSession.mockResolvedValue(freshRefresh);
+
+      // getAuthenticatedCredentials should recover, NOT throw
+      const creds = await service.getAuthenticatedCredentials();
+
+      expect(mockAuthBackend.refreshSession).toHaveBeenCalled();
+      expect(creds.accessKeyId).toBe(freshRefresh.credentials.accessKeyId);
+    });
+
+    it('should throw AuthenticationRequiredError when expired and no stored session', async () => {
+      (service as any).accessLevel = 'expired';
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(false);
+
+      await expect(service.getAuthenticatedCredentials()).rejects.toThrow(
+        AuthenticationRequiredError
+      );
+      expect(mockAuthBackend.refreshSession).not.toHaveBeenCalled();
+    });
+
+    it('should throw AuthenticationRequiredError when recovery refresh itself fails', async () => {
+      (service as any).accessLevel = 'expired';
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.refreshSession.mockRejectedValue(new Error('Truly expired'));
+
+      await expect(service.getAuthenticatedCredentials()).rejects.toThrow(
+        AuthenticationRequiredError
+      );
+    });
+
+    it('should recover from guest state when session exists', async () => {
+      // Simulate: getCredentials() fell back to unauthenticated, setting accessLevel='guest'
+      // but the user has a valid refresh token
+      (mockCognitoSend as jest.Mock)
+        .mockResolvedValueOnce(mockCognitoGetIdResponse('us-east-1:anon'))
+        .mockResolvedValueOnce(mockCognitoCredentialsResponse());
+      await service.getUnauthenticatedCredentials();
+      expect((service as any).accessLevel).toBe('guest');
+
+      // Set up auth backend recovery
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      const freshRefresh = mockAuthBackendRefreshResult();
+      mockAuthBackend.refreshSession.mockResolvedValue(freshRefresh);
+
+      const creds = await service.getAuthenticatedCredentials();
+
+      expect(creds.accessKeyId).toBe(freshRefresh.credentials.accessKeyId);
+      expect(service.hasAuthenticatedCredentials).toBe(true);
+    });
+  });
+
+  // ============ waitForAuthenticated - retry on initial refresh failure ============
+
+  describe('waitForAuthenticated - retry on initial refresh failure', () => {
+    async function makeExpiredAuthenticatedService(): Promise<AWSCredentialsService> {
+      const svc = new AWSCredentialsService();
+      const expiredSession = mockAuthBackendSession();
+      expiredSession.credentials.expiration = new Date(Date.now() - 1000).toISOString();
+      mockAuthBackend.authenticateWithApple.mockResolvedValue(expiredSession);
+      await svc.initializeWithAppleToken('mock-token');
+      // credentials are authenticated but expired (no valid Apple token stored by init)
+      return svc;
+    }
+
+    it('should return true when initial refresh fails but direct restore succeeds', async () => {
+      // This covers the primary real-world scenario:
+      // credentials expire → proactive getCredentials() and waitForAuthenticated() both
+      // share the same failing refreshExpiredCredentials() dedup → waitForAuthenticated()
+      // must retry via a direct restore before giving up.
+      const svc = await makeExpiredAuthenticatedService();
+
+      // Initial refresh (via dedup) fails
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.refreshSession
+        .mockRejectedValueOnce(new Error('STS temporarily failed'))  // first attempt fails
+        .mockResolvedValueOnce(mockAuthBackendRefreshResult());        // direct restore succeeds
+
+      const result = await svc.waitForAuthenticated();
+
+      expect(result).toBe(true);
+      expect(mockAuthBackend.refreshSession).toHaveBeenCalledTimes(2);
+    });
+
+    it('should return false when both initial refresh and direct restore fail', async () => {
+      const svc = await makeExpiredAuthenticatedService();
+
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.refreshSession.mockRejectedValue(new Error('STS down'));
+
+      const result = await svc.waitForAuthenticated();
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false when initial refresh fails and no stored session', async () => {
+      const svc = await makeExpiredAuthenticatedService();
+
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(false); // token was deleted
+
+      const result = await svc.waitForAuthenticated();
+
+      // No stored session → tryRestoreFromAuthBackend never calls refreshSession
+      expect(result).toBe(false);
+      expect(mockAuthBackend.refreshSession).not.toHaveBeenCalled();
+    });
+
+    it('should return true immediately when initial refresh succeeds (no extra calls)', async () => {
+      const svc = await makeExpiredAuthenticatedService();
+
+      mockAuthBackend.isConfigured.mockReturnValue(true);
+      mockAuthBackend.hasStoredSession.mockResolvedValue(true);
+      mockAuthBackend.refreshSession.mockResolvedValueOnce(mockAuthBackendRefreshResult());
+
+      const result = await svc.waitForAuthenticated();
+
+      expect(result).toBe(true);
+      expect(mockAuthBackend.refreshSession).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // ============ expired credential refresh ============
 
   describe('expired credential refresh', () => {

@@ -326,7 +326,9 @@ A Node.js 20 Lambda behind API Gateway v2 handles session management:
 1. First trying Cognito with the stored Apple token (works if <10 min since sign-in)
 2. If that fails, using STS AssumeRole on the Cognito authenticated IAM role
 
-The STS fallback is authorized because the Lambda has already verified the user via their valid refresh token. This is why the IAM trust policy configuration (see "Manual IAM Configuration" section below) is critical—without it, the STS call fails and users get `REAUTH_REQUIRED` errors.
+The STS fallback is authorized because the Lambda has already verified the user via their valid refresh token. This is why the IAM trust policy configuration (see "Manual IAM Configuration" section below) is critical—without it, the STS call fails.
+
+**Error handling (bug fix):** Previously, STS failures caused the Lambda to return HTTP 401, which the client interpreted as "refresh token invalid" and permanently destroyed the stored 30-day refresh token—forcing re-authentication every ~1 hour. This was fixed: the Lambda now returns HTTP 503 for STS failures (server-side error), preserving the valid refresh token. The client only clears the refresh token on genuine 401 responses (refresh token actually expired/invalid). Additionally, `getAuthenticatedCredentials()` in the client now has a recovery path for the `'expired'` access level state, mirroring the logic already present in `waitForAuthenticated()`.
 
 **Lambda environment variables:**
 
@@ -634,9 +636,14 @@ The `aws-credentials.service` tracks credential state as a discriminated access 
 3. If `not_initialized`, attempt full restoration (auth backend → legacy Cognito → guest)
 4. Fall back to unauthenticated (guest) credentials
 
+**Error status codes from Lambda `/auth/refresh`:**
+- `200` — credentials issued successfully
+- `401` — refresh token is genuinely invalid or expired (30-day TTL). Client clears stored tokens and forces re-authentication.
+- `503` — server-side failure (e.g., STS AssumeRole error). Client preserves the refresh token and propagates the error for retry — does NOT clear the session.
+
 **Write enforcement:** `getAuthenticatedCredentials()` throws `AuthenticationRequiredError` if only guest credentials are available. All DynamoDB write operations use `getWriteDocClient()` which calls this method. All S3 write operations (upload, delete) use `getWriteS3Client()` which also calls this method. If credentials are `authenticated` but expired, it first attempts to refresh via the auth backend before throwing.
 
-**Pre-upload credential validation:** Before attempting S3 uploads, `media.service.ts` calls `waitForAuthenticated()` to ensure credentials are valid. This method waits for any ongoing restoration, attempts refresh if needed, and returns `false` if the user must re-authenticate. This prevents wasted upload attempts with expired credentials.
+**Pre-upload credential validation:** Before attempting S3 uploads, `media.service.ts` calls `waitForAuthenticated()` to ensure credentials are valid. This method waits for any ongoing restoration, attempts refresh if needed, and returns `false` if the user must re-authenticate. This prevents wasted upload attempts with expired credentials. When credentials are in the `'authenticated'` state but expired, if the initial `refreshExpiredCredentials()` call fails (e.g. transient STS error), `waitForAuthenticated()` makes one additional direct `tryRestoreFromAuthBackend()` attempt before giving up — ensuring a single transient server error does not unnecessarily trigger the re-auth dialog.
 
 **Proactive foreground refresh:** `useAuth` listens for AppState `active` transitions. When the app comes to foreground, if the user has authenticated credentials that have expired, it proactively calls `getCredentials()` to refresh them in the background. This ensures credentials are ready before the user attempts a write operation.
 
