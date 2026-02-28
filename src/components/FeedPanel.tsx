@@ -151,7 +151,9 @@ export function FeedPanel({
   const ListEmptyComponent = useCallback(
     () => (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>No uploads in this area</Text>
+        <Text style={styles.emptyEmoji}>📍</Text>
+        <Text style={styles.emptyTitle}>No posts nearby</Text>
+        <Text style={styles.emptyText}>Be the first to share something here!</Text>
       </View>
     ),
     []
@@ -258,12 +260,26 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   empty: {
-    padding: 32,
+    paddingVertical: 48,
+    paddingHorizontal: 32,
     alignItems: 'center',
+    gap: 8,
+  },
+  emptyEmoji: {
+    fontSize: 36,
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: COLORS.TEXT_PRIMARY,
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: 14,
     color: COLORS.TEXT_SECONDARY,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   pullIndicator: {
     alignItems: 'center',

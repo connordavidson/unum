@@ -12,13 +12,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthContext } from "../contexts/AuthContext";
 import { useAnalytics } from "../hooks/useAnalytics";
 import { AppleSignInButton } from "../components/AppleSignInButton";
-import { COLORS, SHADOWS } from "../shared/constants";
+import { COLORS, LEGAL_URLS, SHADOWS } from "../shared/constants";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -99,14 +100,14 @@ export function SignInScreen({
           By signing in, you agree to our{" "}
           <Text
             style={styles.legalLink}
-            onPress={() => navigation.navigate("TermsOfService")}
+            onPress={() => Linking.openURL(LEGAL_URLS.TERMS_OF_SERVICE)}
           >
             Terms of Service
           </Text>
           {" "}and{" "}
           <Text
             style={styles.legalLink}
-            onPress={() => navigation.navigate("PrivacyPolicy")}
+            onPress={() => Linking.openURL(LEGAL_URLS.PRIVACY_POLICY)}
           >
             Privacy Policy
           </Text>

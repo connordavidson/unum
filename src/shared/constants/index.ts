@@ -55,6 +55,15 @@ export const STORAGE_KEYS = {
   LOCATION: "unum_user_location",
   RECENT_SEARCHES: "unum_recent_searches",
   FAVORITE_CITY: "unum_favorite_city",
+  /** Set to "true" after the camera gesture hint overlay has been dismissed once. */
+  CAMERA_HINTS_SHOWN: "unum_camera_hints_shown",
+};
+
+// ============ Legal URLs ============
+/** Publicly hosted legal pages — required by App Store Connect. */
+export const LEGAL_URLS = {
+  PRIVACY_POLICY: "https://useunum.xyz/privacy",
+  TERMS_OF_SERVICE: "https://useunum.xyz/terms",
 };
 
 // ============ API Configuration ============

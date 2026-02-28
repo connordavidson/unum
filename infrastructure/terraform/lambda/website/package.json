@@ -1,0 +1,7 @@
+{
+  "name": "unum-website",
+  "version": "1.0.0",
+  "description": "Lambda handler for useunum.xyz legal pages",
+  "main": "index.js",
+  "private": true
+}

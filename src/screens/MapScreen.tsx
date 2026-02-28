@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
 } from 'react-native';
 import MapView, { Marker, Circle, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -18,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import BottomSheet from '@gorhom/bottom-sheet';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocation } from '../hooks/useLocation';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useUploadData } from '../hooks/useUploadData';
 import { useAuthContext } from '../contexts/AuthContext';
 import { useUploadQueue } from '../contexts/UploadQueueContext';
@@ -47,7 +49,8 @@ export function MapScreen({ navigation }: MapScreenProps) {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const insets = useSafeAreaInsets();
 
-  const { position, loading: locationLoading } = useLocation();
+  const { position, loading: locationLoading, permissionGranted: locationPermissionGranted } = useLocation();
+  const { isOnline } = useNetworkStatus();
 
   // Saved cities (recent searches + favorite)
   const {
@@ -403,6 +406,30 @@ export function MapScreen({ navigation }: MapScreenProps) {
         onNavigate={(screen) => navigation.navigate(screen as keyof RootStackParamList)}
       />
 
+      {/* Offline banner */}
+      {!isOnline && (
+        <View style={[styles.offlineBanner, { top: insets.top + 8 }]}>
+          <Ionicons name="cloud-offline-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+          <Text style={styles.offlineBannerText}>No internet connection</Text>
+        </View>
+      )}
+
+      {/* Location permission denied banner */}
+      {!locationPermissionGranted && (
+        <TouchableOpacity
+          style={[styles.locationDeniedBanner, { top: insets.top + (!isOnline ? 52 : 8) }]}
+          onPress={() => Linking.openURL('app-settings:')}
+          activeOpacity={0.85}
+          accessibilityLabel="Location access required — tap to open Settings"
+          accessibilityRole="button"
+        >
+          <Ionicons name="location-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+          <Text style={styles.locationDeniedText}>
+            Location access needed to pin posts — tap to enable
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Search button */}
       <TouchableOpacity
         style={[styles.searchButton, { top: insets.top + 16 }]}
@@ -547,6 +574,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     ...SHADOWS.MEDIUM,
+  },
+  offlineBanner: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(80, 80, 80, 0.92)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 10,
+  },
+  offlineBannerText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  locationDeniedBanner: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(51, 51, 51, 0.92)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 10,
+  },
+  locationDeniedText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+    flexShrink: 1,
   },
   searchButton: {
     position: 'absolute',
