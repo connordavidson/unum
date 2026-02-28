@@ -7,7 +7,6 @@ import {
   Image,
   TextInput,
   Platform,
-  ActivityIndicator,
   Alert,
   Keyboard,
   Linking,
@@ -23,12 +22,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
-import { useUploadData } from '../hooks/useUploadData';
+import { useUserIdentity } from '../hooks/useUserIdentity';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useEulaAcceptance } from '../hooks/useEulaAcceptance';
 import { CameraHintOverlay } from '../components/CameraHintOverlay';
 import { COLORS, BUTTON_SIZES, CAMERA_CONFIG, STORAGE_KEYS } from '../shared/constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useUploadQueue } from '../contexts/UploadQueueContext';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -39,7 +39,8 @@ type CameraScreenProps = {
 export function CameraScreen({ navigation }: CameraScreenProps) {
   const insets = useSafeAreaInsets();
   const { position, permissionGranted: locationPermissionGranted } = useLocation();
-  const { createUpload } = useUploadData();
+  const { userId, deviceId } = useUserIdentity();
+  const { enqueue, createUpload} = useUploadQueue();
 
   const {
     permission,
@@ -272,7 +273,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     });
 
   const [caption, setCaption] = React.useState('');
-  const [isUploading, setIsUploading] = React.useState(false);
 
   // Keyboard animation
   const keyboardOffset = useRef(new Animated.Value(0)).current;
@@ -343,7 +343,7 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     setCapturedWithFrontCamera(false);
   };
 
-  const handleUpload = async () => {
+  const handleUpload = () => {
     const mediaUri = getMediaUri();
     if (!position || !mediaUri) return;
 
@@ -373,17 +373,20 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     const mediaType = getMediaType();
     const hasCaption = caption.trim().length > 0;
 
-    setIsUploading(true);
-    trackUpload('start', { media_type: mediaType, has_caption: hasCaption });
-
     try {
-      await createUpload({
-        type: mediaType,
-        data: mediaUri,
-        coordinates: [position.latitude, position.longitude],
-        caption: caption.trim() || undefined,
+      // Enqueue the upload — returns immediately so we can navigate back right away.
+      // enqueue() throws synchronously only if userId/deviceId is missing.
+      enqueue({
+        uploadData: {
+          type: mediaType,
+          data: mediaUri,
+          coordinates: [position.latitude, position.longitude],
+          caption: caption.trim() || undefined,
+        },
+        userId: userId ?? '',
+        deviceId: deviceId ?? '',
       });
-      trackUpload('complete', { media_type: mediaType, has_caption: hasCaption });
+      trackUpload('start', { media_type: mediaType, has_caption: hasCaption });
       navigation.goBack();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Upload failed. Please try again.';
@@ -399,9 +402,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
       }
 
       if (__DEV__) console.error('Upload failed:', error);
-      trackUpload('fail', { media_type: mediaType, has_caption: hasCaption });
-    } finally {
-      setIsUploading(false);
     }
   };
 
@@ -468,11 +468,11 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     };
 
     // Schedule post in 5 minutes
-    delayTimerRef.current = setTimeout(async () => {
+    delayTimerRef.current = setTimeout(() => {
       try {
-        await createUpload(uploadData);
+        enqueue({ uploadData, userId: userId ?? '', deviceId: deviceId ?? '' });
       } catch (error) {
-        if (__DEV__) console.error('Delayed upload failed:', error);
+        if (__DEV__) console.error('Delayed upload enqueue failed:', error);
       }
     }, 5 * 60 * 1000);
 
@@ -553,7 +553,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             <TouchableOpacity
               style={styles.actionIconButton}
               onPress={handleRetake}
-              disabled={isUploading}
               accessibilityLabel="Retake"
               accessibilityRole="button"
             >
@@ -563,7 +562,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             <TouchableOpacity
               style={styles.actionIconButton}
               onPress={handleDownloadMedia}
-              disabled={isUploading}
               accessibilityLabel="Save to library"
               accessibilityRole="button"
             >
@@ -577,19 +575,15 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
               accessibilityLabel={!locationPermissionGranted ? 'Location required — open Settings' : isUploading ? 'Uploading' : 'Post'}
               accessibilityRole="button"
             >
-              {isUploading ? (
-                <ActivityIndicator color={COLORS.BACKGROUND} />
-              ) : (
-                <Ionicons name="arrow-up" size={24} color={COLORS.BACKGROUND} />
-              )}
+              <Ionicons name="arrow-up" size={24} color={COLORS.BACKGROUND} />
             </TouchableOpacity>
           </View>
 
 {/* Delayed publish button - hidden for now
           <TouchableOpacity
-            style={[styles.delayButton, isUploading && styles.uploadButtonDisabled]}
+            style={styles.delayButton}
             onPress={handleDelayedUpload}
-            disabled={isUploading || !position}
+            disabled={!position}
             accessibilityLabel="Post in 5 minutes"
             accessibilityRole="button"
           >

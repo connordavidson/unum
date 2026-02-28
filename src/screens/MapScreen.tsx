@@ -22,6 +22,7 @@ import { useLocation } from '../hooks/useLocation';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useUploadData } from '../hooks/useUploadData';
 import { useAuthContext } from '../contexts/AuthContext';
+import { useUploadQueue } from '../contexts/UploadQueueContext';
 import { useMapState } from '../hooks/useMapState';
 import { useDownload } from '../hooks/useDownload';
 import { useMapSearch } from '../hooks/useMapSearch';
@@ -87,6 +88,7 @@ export function MapScreen({ navigation }: MapScreenProps) {
   }, [navigateToCity]);
 
   const { uploads, userVotes, handleVote, refreshUploads, invalidateCache } = useUploadData();
+  const { uploadCompleteCount } = useUploadQueue();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [profileDrawerVisible, setProfileDrawerVisible] = useState(false);
   const [reportUploadId, setReportUploadId] = useState<string | null>(null);
@@ -112,6 +114,13 @@ export function MapScreen({ navigation }: MapScreenProps) {
       refreshUploads();
     }, [refreshUploads])
   );
+
+  // Refresh feed automatically when a background upload completes
+  useEffect(() => {
+    if (uploadCompleteCount > 0) {
+      refreshUploads();
+    }
+  }, [uploadCompleteCount, refreshUploads]);
   const { createDownloadHandler } = useDownload();
 
   // Determine initial map position: favorite city > GPS > default

@@ -18,6 +18,13 @@ jest.mock('../../providers/UploadDataProvider', () => ({
   }),
 }));
 
+// Mock upload-pipeline (used by createUpload delegation test)
+const mockRunUploadPipeline = jest.fn();
+
+jest.mock('../../services/upload-pipeline', () => ({
+  runUploadPipeline: (params: unknown) => mockRunUploadPipeline(params),
+}));
+
 // Mock UploadService
 const mockCreateUpload = jest.fn();
 
@@ -663,6 +670,83 @@ describe('useUploadData logic', () => {
     it('should call provider.invalidate()', () => {
       mockInvalidate();
       expect(mockInvalidate).toHaveBeenCalled();
+    });
+  });
+
+  describe('createUpload delegates to runUploadPipeline', () => {
+    /**
+     * Simulates the hook's createUpload logic after refactor:
+     * identity validation is still in the hook; pipeline steps delegate to runUploadPipeline.
+     */
+    async function createUploadDelegatingLogic(
+      uploadData: CreateUploadData,
+      userId: string | null,
+      deviceId: string | null
+    ): Promise<void> {
+      if (!userId) {
+        throw new Error('User ID not available. Please sign in and try again.');
+      }
+      if (!deviceId) {
+        throw new Error('Device ID not available. Please try again.');
+      }
+      await mockRunUploadPipeline({ uploadData, userId, deviceId });
+    }
+
+    beforeEach(() => {
+      mockRunUploadPipeline.mockResolvedValue(undefined);
+    });
+
+    it('calls runUploadPipeline with uploadData, userId, and deviceId', async () => {
+      const uploadData: CreateUploadData = {
+        type: 'photo',
+        data: 'file://local/photo.jpg',
+        coordinates: [37.7749, -122.4194],
+        caption: 'Test',
+      };
+
+      await createUploadDelegatingLogic(uploadData, 'user-123', 'device-456');
+
+      expect(mockRunUploadPipeline).toHaveBeenCalledWith({
+        uploadData,
+        userId: 'user-123',
+        deviceId: 'device-456',
+      });
+    });
+
+    it('still throws when userId is missing (identity validation stays in hook)', async () => {
+      await expect(
+        createUploadDelegatingLogic(
+          { type: 'photo', data: 'file://path.jpg', coordinates: [0, 0] },
+          null,
+          'device-456'
+        )
+      ).rejects.toThrow('User ID not available');
+
+      expect(mockRunUploadPipeline).not.toHaveBeenCalled();
+    });
+
+    it('still throws when deviceId is missing', async () => {
+      await expect(
+        createUploadDelegatingLogic(
+          { type: 'photo', data: 'file://path.jpg', coordinates: [0, 0] },
+          'user-123',
+          null
+        )
+      ).rejects.toThrow('Device ID not available');
+
+      expect(mockRunUploadPipeline).not.toHaveBeenCalled();
+    });
+
+    it('propagates errors thrown by runUploadPipeline', async () => {
+      mockRunUploadPipeline.mockRejectedValue(new Error('Pipeline failed'));
+
+      await expect(
+        createUploadDelegatingLogic(
+          { type: 'photo', data: 'file://path.jpg', coordinates: [0, 0] },
+          'user-123',
+          'device-456'
+        )
+      ).rejects.toThrow('Pipeline failed');
     });
   });
 });
