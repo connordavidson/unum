@@ -62,8 +62,8 @@ export const STORAGE_KEYS = {
 // ============ Legal URLs ============
 /** Publicly hosted legal pages — required by App Store Connect. */
 export const LEGAL_URLS = {
-  PRIVACY_POLICY: "https://unumapp.com/privacy",
-  TERMS_OF_SERVICE: "https://unumapp.com/terms",
+  PRIVACY_POLICY: "https://useunum.xyz/privacy",
+  TERMS_OF_SERVICE: "https://useunum.xyz/terms",
 };
 
 // ============ API Configuration ============

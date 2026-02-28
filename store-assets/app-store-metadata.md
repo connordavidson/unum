@@ -75,10 +75,10 @@ map,photo,video,location,share,nearby,social,moments,explore,community,pins,loca
 
 | Field | URL |
 |---|---|
-| **Privacy Policy URL** | https://unumapp.com/privacy |
-| **Terms of Service URL** | https://unumapp.com/terms |
-| **Support URL** | https://unumapp.com/support *(or mailto:support@unumapp.com)* |
-| **Marketing URL** | https://unumapp.com *(optional)* |
+| **Privacy Policy URL** | https://useunum.xyz/privacy |
+| **Terms of Service URL** | https://useunum.xyz/terms |
+| **Support URL** | https://useunum.xyz/support *(or mailto:support@useunum.xyz)* |
+| **Marketing URL** | https://useunum.xyz *(optional)* |
 
 ---
 
