@@ -42,6 +42,8 @@ interface UploadQueueContextValue {
   latestFinishedJob: UploadJob | null;
   /** Call after the toast finishes its exit animation to clear latestFinishedJob. */
   dismissToast: () => void;
+  /** Increments each time an upload succeeds. Watch this to trigger a feed refresh. */
+  uploadCompleteCount: number;
 }
 
 // ============ Context ============
@@ -53,6 +55,7 @@ const UploadQueueContext = createContext<UploadQueueContextValue | null>(null);
 export function UploadQueueProvider({ children }: { children: React.ReactNode }) {
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [latestFinishedJob, setLatestFinishedJob] = useState<UploadJob | null>(null);
+  const [uploadCompleteCount, setUploadCompleteCount] = useState(0);
   const { trackUpload } = useAnalytics();
 
   // Stable ref so async callbacks always have access to trackUpload
@@ -87,6 +90,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
         const finished: UploadJob = { ...job, status: 'success' };
         setJobs(prev => prev.map(j => j.id === id ? finished : j));
         setLatestFinishedJob(finished);
+        setUploadCompleteCount(prev => prev + 1);
         trackUploadRef.current('complete', meta);
       })
       .catch((err: unknown) => {
@@ -107,7 +111,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
   const activeCount = jobs.filter(j => j.status === 'uploading').length;
 
   return (
-    <UploadQueueContext.Provider value={{ enqueue, activeCount, latestFinishedJob, dismissToast }}>
+    <UploadQueueContext.Provider value={{ enqueue, activeCount, latestFinishedJob, dismissToast, uploadCompleteCount }}>
       {children}
     </UploadQueueContext.Provider>
   );
