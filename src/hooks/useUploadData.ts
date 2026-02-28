@@ -8,12 +8,9 @@
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import * as Crypto from 'expo-crypto';
 import { FEATURE_FLAGS, UPLOAD_CONFIG } from '../shared/constants';
 import { getUploadDataProvider } from '../providers/UploadDataProvider';
-import { getUploadService } from '../services/upload.service';
-import { getMediaService } from '../services/media.service';
-import { getModerationService } from '../services/moderation.service';
+import { runUploadPipeline } from '../services/upload-pipeline';
 import { useUserIdentity } from './useUserIdentity';
 import { useVoting } from './useVoting';
 import type { Upload, CreateUploadData, VoteType } from '../shared/types';
@@ -101,7 +98,7 @@ export function useUploadData(): UseUploadDataResult {
     provider.invalidate();
   }, [provider]);
 
-  // Create upload - uses existing services
+  // Create upload - delegates to runUploadPipeline after resolving identity
   const createUpload = useCallback(async (uploadData: CreateUploadData) => {
     if (__DEV__) console.log('[useUploadData] createUpload', { type: uploadData.type, hasCoords: !!uploadData.coordinates });
 
@@ -132,44 +129,12 @@ export function useUploadData(): UseUploadDataResult {
         throw new Error('Device ID not available. Please try again.');
       }
 
-      const uploadSvc = getUploadService({ useRemote: true });
-      const mediaSvc = getMediaService({ useRemote: true });
-      const uploadId = Crypto.randomUUID();
-
-      // Content moderation check before upload
-      const moderationResult = await getModerationService().moderate(
-        uploadData.data,
-        uploadData.type,
-      );
-      if (!moderationResult.approved) {
-        throw new Error(moderationResult.reason || 'Content was flagged as inappropriate and cannot be uploaded.');
-      }
-
-      // Upload media to S3 (with EXIF metadata for photos)
-      const mediaResult = await mediaSvc.upload({
-        localPath: uploadData.data,
-        uploadId,
-        mediaType: uploadData.type,
-        coordinates: uploadData.coordinates,
-        timestamp: new Date().toISOString(),
-        uploaderId: finalUserId,
-      });
-
-      // Create upload record in DynamoDB
-      await uploadSvc.createUpload({
-        type: uploadData.type,
-        mediaUrl: mediaResult.url,
-        mediaKey: mediaResult.key,
-        coordinates: uploadData.coordinates,
-        caption: uploadData.caption,
-        userId: finalUserId,
-        deviceId: finalDeviceId,
-      });
-
+      await runUploadPipeline({ uploadData, userId: finalUserId, deviceId: finalDeviceId });
       if (__DEV__) console.log('[useUploadData] Upload created successfully');
+      return;
     }
 
-    // Invalidate cache so next refresh gets new data
+    // Invalidate cache so next refresh gets new data (local-only path)
     provider.invalidate();
   }, [userId, userIdRef, deviceId, deviceIdRef, provider]);
 
