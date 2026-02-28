@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Linking,
   TouchableWithoutFeedback,
   Animated,
 } from 'react-native';
@@ -25,7 +26,9 @@ import { useLocation } from '../hooks/useLocation';
 import { useUploadData } from '../hooks/useUploadData';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useEulaAcceptance } from '../hooks/useEulaAcceptance';
-import { COLORS, BUTTON_SIZES, CAMERA_CONFIG } from '../shared/constants';
+import { CameraHintOverlay } from '../components/CameraHintOverlay';
+import { COLORS, BUTTON_SIZES, CAMERA_CONFIG, STORAGE_KEYS } from '../shared/constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -35,7 +38,7 @@ type CameraScreenProps = {
 
 export function CameraScreen({ navigation }: CameraScreenProps) {
   const insets = useSafeAreaInsets();
-  const { position } = useLocation();
+  const { position, permissionGranted: locationPermissionGranted } = useLocation();
   const { createUpload } = useUploadData();
 
   const {
@@ -67,6 +70,18 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
   // EULA acceptance
   const { isAccepted: eulaAccepted, acceptEula } = useEulaAcceptance();
+
+  // Camera hint overlay — shown once on first launch
+  const [showHints, setShowHints] = React.useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.CAMERA_HINTS_SHOWN).then((value) => {
+      if (!value) setShowHints(true);
+    });
+  }, []);
+  const dismissHints = useCallback(async () => {
+    setShowHints(false);
+    await AsyncStorage.setItem(STORAGE_KEYS.CAMERA_HINTS_SHOWN, 'true');
+  }, []);
 
   // Track screen view on mount
   useEffect(() => {
@@ -468,13 +483,28 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
   // Permission not granted
   if (!permission?.granted) {
+    const canAskAgain = permission?.canAskAgain !== false;
     return (
       <View style={[styles.container, styles.centered]}>
         <Ionicons name="camera-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.permissionText}>Camera access is required</Text>
-        <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-          <Text style={styles.permissionButtonText}>Grant Permission</Text>
-        </TouchableOpacity>
+        <Text style={styles.permissionSub}>
+          {canAskAgain
+            ? 'Unum needs camera access to capture photos and videos.'
+            : 'Camera access was denied. Enable it in Settings to continue.'}
+        </Text>
+        {canAskAgain ? (
+          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+            <Text style={styles.permissionButtonText}>Grant Permission</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.permissionButton}
+            onPress={() => Linking.openURL('app-settings:')}
+          >
+            <Text style={styles.permissionButtonText}>Open Settings</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.closeButtonAlt} onPress={handleClose}>
           <Text style={styles.closeButtonAltText}>Cancel</Text>
         </TouchableOpacity>
@@ -541,10 +571,10 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.postIconButton, isUploading && styles.uploadButtonDisabled]}
-              onPress={handleUpload}
-              disabled={isUploading || !position}
-              accessibilityLabel={isUploading ? 'Uploading' : 'Post'}
+              style={[styles.postIconButton, (isUploading || !locationPermissionGranted) && styles.uploadButtonDisabled]}
+              onPress={locationPermissionGranted ? handleUpload : () => Linking.openURL('app-settings:')}
+              disabled={isUploading}
+              accessibilityLabel={!locationPermissionGranted ? 'Location required — open Settings' : isUploading ? 'Uploading' : 'Post'}
               accessibilityRole="button"
             >
               {isUploading ? (
@@ -684,6 +714,9 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
           </View>
         </View>
       </View>
+
+      {/* First-launch gesture tutorial overlay */}
+      {showHints && <CameraHintOverlay onDismiss={dismissHints} />}
     </View>
   );
 }
@@ -788,6 +821,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: COLORS.TEXT_SECONDARY,
     marginTop: 16,
+  },
+  permissionSub: {
+    fontSize: 14,
+    color: COLORS.TEXT_TERTIARY,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    lineHeight: 20,
+    marginTop: 8,
   },
   permissionButton: {
     marginTop: 24,

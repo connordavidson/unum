@@ -8,6 +8,8 @@ interface UseLocationResult {
   position: Coordinates | null;
   error: string | null;
   loading: boolean;
+  /** False when the OS permission was denied. Position falls back to cache/default. */
+  permissionGranted: boolean;
   refresh: () => Promise<void>;
 }
 
@@ -15,6 +17,7 @@ export function useLocation(): UseLocationResult {
   const [position, setPosition] = useState<Coordinates | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [permissionGranted, setPermissionGranted] = useState(true);
 
   const getCachedLocation = useCallback(async (): Promise<Coordinates | null> => {
     return getStoredJSON<Coordinates>(STORAGE_KEYS.LOCATION);
@@ -33,13 +36,15 @@ export function useLocation(): UseLocationResult {
       const { status } = await Location.requestForegroundPermissionsAsync();
 
       if (status !== 'granted') {
+        setPermissionGranted(false);
         setError('Location permission denied');
-        // Fall back to cached or default
+        // Fall back to cached or default — position is not real GPS
         const cached = await getCachedLocation();
         setPosition(cached || MAP_CONFIG.DEFAULT_CENTER);
         setLoading(false);
         return;
       }
+      setPermissionGranted(true);
 
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -80,6 +85,7 @@ export function useLocation(): UseLocationResult {
     position,
     error,
     loading,
+    permissionGranted,
     refresh: fetchLocation,
   };
 }
