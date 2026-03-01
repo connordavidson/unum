@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthContext } from "../contexts/AuthContext";
 import { useAnalytics } from "../hooks/useAnalytics";
+import { useEulaAcceptance } from "../hooks/useEulaAcceptance";
 import { AppleSignInButton } from "../components/AppleSignInButton";
 import { COLORS, LEGAL_URLS, SHADOWS } from "../shared/constants";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -37,21 +38,22 @@ export function SignInScreen({
   const insets = useSafeAreaInsets();
   const { auth } = useAuthContext();
   const { trackScreen, trackLogin } = useAnalytics();
+  const { acceptEula } = useEulaAcceptance();
 
   // Track screen view on mount
   useEffect(() => {
-    trackScreen('SignIn');
+    trackScreen("SignIn");
   }, [trackScreen]);
 
   const handleSignIn = useCallback(async () => {
     const success = await auth.signInWithApple();
     if (success) {
-      // Track successful login
+      // Signing in constitutes EULA acceptance ("By signing in, you agree to our Terms of Service")
+      await acceptEula();
       trackLogin();
-      // Close modal and return to map
       navigation.goBack();
     }
-  }, [auth, navigation, trackLogin]);
+  }, [auth, navigation, trackLogin, acceptEula]);
 
   const handleClose = useCallback(() => {
     navigation.goBack();
@@ -69,8 +71,8 @@ export function SignInScreen({
         {/* Title and description */}
         <Text style={styles.title}>Sign in</Text>
         <Text style={styles.description}>
-          Sign in with your Apple ID to share photos and videos on the map. Your
-          posts will be visible to everyone.
+          Sign in with your Apple ID to share photos and videos. Your posts will
+          be visible to everyone.
         </Text>
 
         {/* Error message */}
@@ -103,8 +105,8 @@ export function SignInScreen({
             onPress={() => Linking.openURL(LEGAL_URLS.TERMS_OF_SERVICE)}
           >
             Terms of Service
-          </Text>
-          {" "}and{" "}
+          </Text>{" "}
+          and{" "}
           <Text
             style={styles.legalLink}
             onPress={() => Linking.openURL(LEGAL_URLS.PRIVACY_POLICY)}
