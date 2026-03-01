@@ -24,7 +24,6 @@ import { useCamera } from '../hooks/useCamera';
 import { useLocation } from '../hooks/useLocation';
 import { useUserIdentity } from '../hooks/useUserIdentity';
 import { useAnalytics } from '../hooks/useAnalytics';
-import { useEulaAcceptance } from '../hooks/useEulaAcceptance';
 import { CameraHintOverlay } from '../components/CameraHintOverlay';
 import { COLORS, BUTTON_SIZES, CAMERA_CONFIG, STORAGE_KEYS } from '../shared/constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -68,9 +67,6 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
 
   // Analytics
   const { trackScreen, trackUpload, track } = useAnalytics();
-
-  // EULA acceptance
-  const { isAccepted: eulaAccepted, acceptEula } = useEulaAcceptance();
 
   // Camera hint overlay — shown once on first launch
   const [showHints, setShowHints] = React.useState(false);
@@ -347,24 +343,14 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     const mediaUri = getMediaUri();
     if (!position || !mediaUri) return;
 
-    // EULA acceptance gate
-    if (!eulaAccepted) {
+    // Sign-in gate
+    if (!userId) {
       Alert.alert(
-        'Terms of Service',
-        'You must accept the Terms of Service before posting.',
+        'Sign In Required',
+        'You must be signed in to post.',
         [
           { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'View Terms',
-            onPress: () => navigation.navigate('TermsOfService'),
-          },
-          {
-            text: 'Accept',
-            onPress: async () => {
-              await acceptEula();
-              handleUpload();
-            },
-          },
+          { text: 'Sign In', onPress: () => navigation.navigate('SignIn') },
         ],
       );
       return;
@@ -437,24 +423,14 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
     const mediaUri = getMediaUri();
     if (!position || !mediaUri) return;
 
-    // EULA acceptance gate
-    if (!eulaAccepted) {
+    // Sign-in gate
+    if (!userId) {
       Alert.alert(
-        'Terms of Service',
-        'You must accept the Terms of Service before posting.',
+        'Sign In Required',
+        'You must be signed in to post.',
         [
           { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'View Terms',
-            onPress: () => navigation.navigate('TermsOfService'),
-          },
-          {
-            text: 'Accept',
-            onPress: async () => {
-              await acceptEula();
-              handleDelayedUpload();
-            },
-          },
+          { text: 'Sign In', onPress: () => navigation.navigate('SignIn') },
         ],
       );
       return;
@@ -569,10 +545,9 @@ export function CameraScreen({ navigation }: CameraScreenProps) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.postIconButton, (isUploading || !locationPermissionGranted) && styles.uploadButtonDisabled]}
+              style={[styles.postIconButton, !locationPermissionGranted && styles.uploadButtonDisabled]}
               onPress={locationPermissionGranted ? handleUpload : () => Linking.openURL('app-settings:')}
-              disabled={isUploading}
-              accessibilityLabel={!locationPermissionGranted ? 'Location required — open Settings' : isUploading ? 'Uploading' : 'Post'}
+              accessibilityLabel={!locationPermissionGranted ? 'Location required — open Settings' : 'Post'}
               accessibilityRole="button"
             >
               <Ionicons name="arrow-up" size={24} color={COLORS.BACKGROUND} />
